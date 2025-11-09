@@ -1,22 +1,9 @@
 import { userValidationSchema } from '../validation/user.validation.js';
 import UserService from '../service/users.service.js';
 
-import User from '../models/users.model.js'; 
 
 const UserController = {
-    // register: async (req, res) => {
-    //     // בדיקת תקינות עם Joi
-    //     const { error } = userValidationSchema.validate(req.body);
-    //     if (error) {
-    //         return res.status(400).json({ message: error.details[0].message });
-    //     }
-    //     try {
-    //         const newUser = await UserService.register(req.body);
-    //         res.status(201).json({ message: "User registered successfully", user: newUser });
-    //     } catch (error) {
-    //         res.status(400).json({ message: error.message });
-    //     }
-    // },
+   
 register: async (req, res) => {
     const { error } = userValidationSchema.validate(req.body);
     if (error) {
@@ -30,7 +17,20 @@ register: async (req, res) => {
     }
 },
 
-
+  addUserByAdmin: async (req, res) => {
+        const { error } = userValidationSchema.validate(req.body);
+        if (error) {
+            return res.status(400).json({ message: error.details[0].message });
+        }
+        
+        try {
+            const currentUser = req.user; 
+            const newUser = await UserService.addUserByAdmin(req.body, currentUser);
+            res.status(201).json({ message: "User added successfully", user: newUser });
+        } catch (error) {
+            res.status(400).json({ message: error.message });
+        }
+    }
 
     
     
