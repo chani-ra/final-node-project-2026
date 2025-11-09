@@ -17,38 +17,18 @@ const UserController = {
     //         res.status(400).json({ message: error.message });
     //     }
     // },
-
- register: async (req, res) => {
-        // בדיקת תקינות עם Joi
-        const { error } = userValidationSchema.validate(req.body);
-        if (error) {
-            return res.status(400).json({ message: error.details[0].message });
-        }
-
-        // בדיקה אם המשתמש כבר קיים
-        const existingUser = await User.findOne({ email: req.body.email });
-        if (existingUser) {
-            return res.status(409).json({ message: "User already exists" });
-        }
-
-        // הצפנת סיסמה
-        const hashedPassword = await bcrypt.hash(req.body.password, 10);
-
-        // יצירת אובייקט משתמש חדש
-        const userData = { ...req.body, password: hashedPassword };
-
-        // בדיקה אם המשתמש הוא מנהל
-        if (userData.role === 'admin') {
-            // אפשר להוסיף לוגיקה מיוחדת כאן, לדוג' לשלוח אימייל או להוסיף הרשאות
-        }
-
-        try {
-            const newUser = await UserService.register(userData);
-            res.status(201).json({ message: "User registered successfully", user: newUser });
-        } catch (error) {
-            res.status(400).json({ message: error.message });
-        }
-    },
+register: async (req, res) => {
+    const { error } = userValidationSchema.validate(req.body);
+    if (error) {
+        return res.status(400).json({ message: error.details[0].message });
+    }
+    try {
+        const newUser = await UserService.register(req.body);
+        res.status(201).json({ message: "User registered successfully", user: newUser });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+},
 
 
 
