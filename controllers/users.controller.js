@@ -4,7 +4,7 @@ import UserService from '../service/users.service.js';
 
 const UserController = {
    
-register: async (req, res) => {
+register: async (req, res, ) => {
     const { error } = userValidationSchema.validate(req.body);
     if (error) {
         return res.status(400).json({ message: error.details[0].message });
