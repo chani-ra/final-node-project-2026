@@ -1,4 +1,5 @@
 import User from '../models/users.model.js';
+import bcrypt from 'bcryptjs';
 
 
 const createUser = async (userData) => {
@@ -30,13 +31,18 @@ const UserService = {
             throw new Error("Access denied. Only admins can add users.");
         }
         return await createUser(userData);
-    },
-
-    login: async (email, password) => {
+    },    login: async (email, password) => {
         const user = await User.findOne({ email });
-        if (!user || user.password !== password) {
+        if (!user) {
             throw new Error("Invalid credentials");
         }
+        
+        // השוואת סיסמה מוצפנת
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            throw new Error("Invalid credentials");
+        }
+        
         return user;
     },
 

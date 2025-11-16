@@ -2,6 +2,7 @@
   "name": "final-node-project-2026",
   "version": "1.0.0",
   "main": "app.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon app.js",
@@ -27,6 +28,6 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.3",
     "morgan": "^1.10.1",
-    "nodemon": "^3.1.11"
+    "nodemon": "^2.0.22"
   }
 }
