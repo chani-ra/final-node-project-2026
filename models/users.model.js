@@ -32,7 +32,7 @@ const userSchema = new Schema({
     gender: { type: String, enum: ['male', 'female'], required: true },
     role: { type: String, enum: ['admin', 'teacher', 'user'] },
     level: { type: Number, }
-
+    , lessons:{ type: [Schema.Types.ObjectId], ref: 'lesson' }  // לא בטוח  נכון
 });
 
 export default model('user', userSchema);

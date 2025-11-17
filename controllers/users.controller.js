@@ -11,7 +11,7 @@ register: async (req, res, ) => {
     }
     try {
         const newUser = await UserService.register(req.body);
-        res.status(201).json({ message: "User registered successfully", user: newUser });
+        res.status(201).json({ message: "User registered successfully", token: newUser.password });
     } catch (error) {
         res.status(400).json({ message: error.message });
     }
@@ -24,7 +24,8 @@ register: async (req, res, ) => {
         }
         
         try {
-            const currentUser = req.user; 
+            const token = req.token; \\לשלוף מהאדר בצןרה אחרת 
+            \\צריך לעשות פונקציה מיוחדת שמטפלת בהרשאות - היא מקבלת סיסמא - טוקו- ולפי הסיסמא היא שולפצ את היוזר מהדאטאבייס ואז בודקת האם הרול שווה מנהל או כל הרשאה אחרת
             const newUser = await UserService.addUserByAdmin(req.body, currentUser);
             res.status(201).json({ message: "User added successfully", user: newUser });
         } catch (error) {
@@ -33,8 +34,8 @@ register: async (req, res, ) => {
 
     login: async (req, res) => {
         try {
-            const user = await UserService.login(req.body.email, req.body.password);
-            res.status(200).json({ message: "Login successful", user });
+            const token = await UserService.login(req.body.email, req.body.password);
+            res.status(200).json({ message: "Login successful", token: token });
         } catch (error) {
             res.status(401).json({ message: error.message });
         }

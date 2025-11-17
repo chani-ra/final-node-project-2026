@@ -18,6 +18,17 @@ const createUser = async (userData) => {
     const user = new User(userData);
     return await user.save();
 }
+
+const generateToken = (user) => {
+    const payload = {
+        userId: user._id,
+        role: user.role,
+    };
+    const secretKey = process.env.JWT_SECRET || 'SecretKey';
+    return jwt.sign(payload, secretKey, { expiresIn: '1h' });
+};
+
+
 const UserService = {
 
     register: async (userData) => {
@@ -26,22 +37,31 @@ const UserService = {
         return await createUser(userData);
     },
     
-    addUserByAdmin: async (userData, currentUser) => {
+    addAdminByAdmin: async (userData, currentUser) => {
         if (!currentUser || currentUser.role !== 'admin') {
             throw new Error("Access denied. Only admins can add users.");
         }
+        userData.role = "admin";
         return await createUser(userData);
-    },    login: async (email, password) => {
+    },
+    
+    addTeacherByAdmin: async (userData, currentUser) => {
+        if (!currentUser || currentUser.role !== 'admin') {
+            throw new Error("Access denied. Only admins can add users.");
+        }
+        userData.role = "teacher";
+        return await createUser(userData);
+    },
+
+
+
+    login: async (email, password) => {
         const user = await User.findOne({ email });
-        if (!user) {
+        if (!user || user.password !== password) {
+            // להשוות עם הביקאריפט קומפר...
             throw new Error("Invalid credentials");
         }
-        
-        // השוואת סיסמה מוצפנת
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            throw new Error("Invalid credentials");
-        }
+        const token = user.password;
         
         return user;
     },
