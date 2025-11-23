@@ -89,7 +89,19 @@ const UserService = {
 
     deleteUser: async (id) => {
         return await User.findByIdAndDelete(id);
-    }
+    },
+
+    // פונקציה זמנית ליצירת admin ראשוני (רק לפיתוח!)
+    createFirstAdmin: async (userData) => {
+        // בדיקה שאין כבר admin
+        const existingAdmin = await User.findOne({ role: 'admin' });
+        if (existingAdmin) {
+            throw new Error("Admin already exists");
+        }
+        
+        userData.role = 'admin';
+        return await createUser(userData);
+    },
 };
 
 export default UserService;

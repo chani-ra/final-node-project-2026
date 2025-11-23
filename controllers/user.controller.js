@@ -1,27 +1,19 @@
 import UserService from '../service/users.service.js';
 
 export const UserController = {
-    // קבלת פרופיל - כל משתמש יכול לראות את הפרופיל שלו
+    // קבלת פרופיל - משתמש בפונקציה המסוננת מהסרביס
     getProfile: async (req, res) => {
         try {
-            // req.user כבר מוכן על ידי authenticateToken middleware!
-            const user = await UserService.getUserById(req.user.id);
-            
-            res.json({
+            const user = await UserService.getUserProfile(req.user.id);
+            res.status(200).json({
                 success: true,
-                user: {
-                    id: user._id,
-                    email: user.email,
-                    username: user.username,
-                    role: user.role,
-                    createdAt: user.createdAt
-                }
+                user: user
             });
         } catch (error) {
-            res.status(500).json({ 
-                success: false, 
-                message: error.message 
-            });
+            if (error.message === 'User not found') {
+                return res.status(404).json({ message: error.message });
+            }
+            res.status(500).json({ message: error.message });
         }
     },
 
@@ -30,7 +22,6 @@ export const UserController = {
         try {
             const { username } = req.body;
             
-            // req.user.id זמין בזכות המידלוואר!
             const updatedUser = await UserService.updateUser(req.user.id, { username });
             
             res.json({
@@ -51,10 +42,9 @@ export const UserController = {
         }
     },
 
-    // רשימת כל המשתמשים - רק למנהלים (מוגן על ידי requireAdmin)
+    // רשימת כל המשתמשים - מסנן את הנתונים
     getAllUsers: async (req, res) => {
         try {
-            // אין צורך לבדוק הרשאות - requireAdmin כבר עשה את זה!
             const users = await UserService.getAllUsers();
             
             res.json({
@@ -80,7 +70,6 @@ export const UserController = {
         try {
             const { userId } = req.params;
             
-            // בדיקה שלא מוחקים את עצמך
             if (userId === req.user.id) {
                 return res.status(400).json({
                     success: false,
@@ -121,6 +110,27 @@ export const UserController = {
             });
         } catch (error) {
             res.status(500).json({ 
+                success: false, 
+                message: error.message 
+            });
+        }
+    },
+
+    // יצירת admin ראשוני (זמני לפיתוח)
+    createFirstAdmin: async (req, res) => {
+        try {
+            const admin = await UserService.createFirstAdmin(req.body);
+            res.status(201).json({
+                success: true,
+                message: 'First admin created successfully',
+                user: {
+                    id: admin._id,
+                    email: admin.email,
+                    role: admin.role
+                }
+            });
+        } catch (error) {
+            res.status(400).json({ 
                 success: false, 
                 message: error.message 
             });
