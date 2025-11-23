@@ -2,7 +2,6 @@ import { userValidationSchema } from '../validation/user.validation.js';
 import UserService from '../service/users.service.js';
 
 
-export const UserController = {
 
     
     // getUserProfile: async (req, res) => {
