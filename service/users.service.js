@@ -60,6 +60,25 @@ const UserService = {
         return await User.findById(id);
     },
 
+    // פונקציה ספציפית לפרופיל - מחזירה מידע מסונן
+    getUserProfile: async (id) => {
+        const user = await User.findById(id).select('-password -__v');
+        if (!user) {
+            throw new Error('User not found');
+        }
+        
+        return {
+            id: user._id,
+            email: user.email,
+            username: user.username,
+            role: user.role,
+            phone: user.phone,
+            age: user.age,
+            gender: user.gender,
+            createdAt: user.createdAt
+        };
+    },
+
     updateUser: async (id, userData) => {
         return await User.findByIdAndUpdate(id, userData, { new: true });
     },
