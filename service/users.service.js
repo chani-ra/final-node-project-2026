@@ -62,6 +62,14 @@ const UserService = {
 
     updateUser: async (id, userData) => {
         return await User.findByIdAndUpdate(id, userData, { new: true });
+    },
+
+    getAllUsers: async () => {
+        return await User.find({}).select('-password'); // ללא סיסמה
+    },
+
+    deleteUser: async (id) => {
+        return await User.findByIdAndDelete(id);
     }
 };
 
