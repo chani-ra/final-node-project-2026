@@ -15,6 +15,15 @@ const createUser = async (userData) => {
 
 const UserService = {
 
+    // Helper function לסינון נתוני משתמש
+    filterUserData: (user) => ({
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        createdAt: user.createdAt
+    }),
+
     register: async (userData) => {
 
         userData.role = 'user';
@@ -75,12 +84,29 @@ const UserService = {
             phone: user.phone,
             age: user.age,
             gender: user.gender,
-            createdAt: user.createdAt
-        };
+            createdAt: user.createdAt        };
     },
 
+    // פונקציה כללית לעדכון משתמש (למנהלים)
     updateUser: async (id, userData) => {
-        return await User.findByIdAndUpdate(id, userData, { new: true });
+        const updatedUser = await User.findByIdAndUpdate(id, userData, { new: true }).select('-password -__v');
+        return updatedUser;
+    },
+
+    // פונקציה ספציפית לעדכון פרופיל אישי (למשתמש עצמו)
+    updateOwnProfile: async (id, profileData) => {
+        // רק שדות מותרים לעדכון עצמי
+        const allowedFields = ['username', 'phone', 'age'];
+        const filteredData = {};
+        
+        for (const field of allowedFields) {
+            if (profileData[field] !== undefined) {
+                filteredData[field] = profileData[field];
+            }
+        }
+        
+        const updatedUser = await User.findByIdAndUpdate(id, filteredData, { new: true }).select('-password -__v');
+        return updatedUser;
     },
 
     getAllUsers: async () => {

@@ -3,6 +3,29 @@ import UserService from '../service/users.service.js';
 import TokenService from '../service/token.service.js';
 
 export const AuthController = {
+  // יצירת admin ראשוני (זמני לפיתוח)
+    createFirstAdmin: async (req, res) => {
+        try {
+            const admin = await UserService.createFirstAdmin(req.body);
+            res.status(201).json({
+                success: true,
+                message: 'First admin created successfully',
+                token: tokens.accessToken,
+                refreshToken: tokens.refreshToken,
+                user: {
+                    id: admin._id,
+                    email: admin.email,
+                    role: admin.role
+                }
+            });
+        } catch (error) {
+            res.status(400).json({ 
+                success: false, 
+                message: error.message 
+            });
+        }
+    },
+
     register: async (req, res) => {
         // Joi validation - מקצועי ומלא
         const { error } = userValidationSchema.validate(req.body);

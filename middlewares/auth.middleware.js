@@ -1,40 +1,42 @@
 import TokenService from '../service/token.service.js';
-import UserService from '../service/users.service.js';
+import UserService from '../service/users.service.js'; 
 
 export const authenticateToken = async (req, res, next) => {
     try {
-        const authHeader = req.headers.authorization;
-        const token = authHeader && authHeader.startsWith('Bearer ') 
-            ? authHeader.slice(7) 
+        const { authorization } = req.headers;       
+        const token = authorization?.startsWith('Bearer ')
+            ? authorization.slice(7)
             : null;
-
+        
         if (!token) {
-            return res.status(401).json({ message: 'Access token is required' });
+            return res.status(401).json({
+                message: !authorization
+                    ? 'Authorization header is required'
+                    : 'Invalid authorization format. Use: Bearer <token>'
+            });
         }
 
-        // Verify token
-        const decoded = TokenService.verifyToken(token, 'access');
-        
+        // Verify token עם השירות שלנו
+        const decoded = TokenService.verifyToken(token, 'access');        // בדיקת סוג טוקן - הגנה מפני שימוש ב-refresh token
         if (decoded.type !== 'access') {
             return res.status(401).json({ message: 'Invalid token type' });
         }
 
-        // Get user from database to ensure they still exist
-        const user = await UserService.getUserById(decoded.userId);
-        if (!user) {
-            return res.status(401).json({ message: 'User not found' });
-        }
+        // בדיקה אופציונלית - רק אם צריך אבטחה מוגברת
+        // const user = await UserService.getUserById(decoded.userId);
+        // if (!user) {
+        //     return res.status(401).json({ message: 'User no longer exists' });
+        // }
 
-        // Add user data to request object
+        // שמירת מידע המשתמש מהטוקן (יעיל יותר)
         req.user = {
-            id: user._id,
-            email: user.email,
-            username: user.username,
-            role: user.role
+            id: decoded.userId,
+            role: decoded.role
         };
 
         next();
-    } catch (error) {
+    } 
+    catch (error) {
         if (error.name === 'JsonWebTokenError') {
             return res.status(401).json({ message: 'Invalid token' });
         }
@@ -53,8 +55,8 @@ export const requireRole = (allowedRoles) => {
         }
 
         if (!allowedRoles.includes(req.user.role)) {
-            return res.status(403).json({ 
-                message: `Access denied. Requires one of: ${allowedRoles.join(', ')}` 
+            return res.status(403).json({
+                message: `Access denied. Requires one of: ${allowedRoles.join(', ')}`
             });
         }
 

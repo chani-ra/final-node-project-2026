@@ -15,24 +15,17 @@ export const UserController = {
             }
             res.status(500).json({ message: error.message });
         }
-    },
-
-    // עדכון פרופיל - כל משתמש יכול לעדכן את עצמו
+    },    // עדכון פרופיל - כל משתמש יכול לעדכן את עצמו
     updateProfile: async (req, res) => {
         try {
-            const { username } = req.body;
+            const { username, phone, age } = req.body;
             
-            const updatedUser = await UserService.updateUser(req.user.id, { username });
+            const updatedUser = await UserService.updateOwnProfile(req.user.id, { username, phone, age });
             
             res.json({
                 success: true,
                 message: 'Profile updated successfully',
-                user: {
-                    id: updatedUser._id,
-                    email: updatedUser.email,
-                    username: updatedUser.username,
-                    role: updatedUser.role
-                }
+                user: UserService.filterUserData(updatedUser)
             });
         } catch (error) {
             res.status(500).json({ 
@@ -97,16 +90,10 @@ export const UserController = {
             const { userId } = req.params;
             
             const updatedUser = await UserService.updateUser(userId, { role: 'teacher' });
-            
-            res.json({
+              res.json({
                 success: true,
                 message: 'User promoted to teacher successfully',
-                user: {
-                    id: updatedUser._id,
-                    email: updatedUser.email,
-                    username: updatedUser.username,
-                    role: updatedUser.role
-                }
+                user: UserService.filterUserData(updatedUser)
             });
         } catch (error) {
             res.status(500).json({ 
@@ -116,26 +103,47 @@ export const UserController = {
         }
     },
 
-    // יצירת admin ראשוני (זמני לפיתוח)
-    createFirstAdmin: async (req, res) => {
+    // יצירת מנהל חדש - רק למנהלים קיימים
+    createAdmin: async (req, res) => {
         try {
-            const admin = await UserService.createFirstAdmin(req.body);
+            const userData = req.body;
+            const currentUser = req.user; // מגיע מה-middleware
+            
+            const newAdmin = await UserService.addAdminByAdmin(userData, currentUser);
+            
             res.status(201).json({
                 success: true,
-                message: 'First admin created successfully',
-                user: {
-                    id: admin._id,
-                    email: admin.email,
-                    role: admin.role
-                }
+                message: 'Admin created successfully',
+                user: UserService.filterUserData(newAdmin)
             });
         } catch (error) {
-            res.status(400).json({ 
+            res.status(403).json({ 
                 success: false, 
                 message: error.message 
             });
         }
-    }
+    },
+
+    // יצירת מורה חדש - רק למנהלים
+    createTeacher: async (req, res) => {
+        try {
+            const userData = req.body;
+            const currentUser = req.user; // מגיע מה-middleware
+            
+            const newTeacher = await UserService.addTeacherByAdmin(userData, currentUser);
+            
+            res.status(201).json({
+                success: true,
+                message: 'Teacher created successfully', 
+                user: UserService.filterUserData(newTeacher)
+            });
+        } catch (error) {
+            res.status(403).json({ 
+                success: false, 
+                message: error.message 
+            });
+        }
+    },
 };
 
 export default UserController;
