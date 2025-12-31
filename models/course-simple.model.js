@@ -75,56 +75,16 @@ courseSchema.index({ level: 1, category: 1 });
 courseSchema.index({ teacher: 1 });
 courseSchema.index({ targetAudience: 1 });
 
-// Method פשוט למציאת קורסים מתאימים לפי תחביבים
+// Method פשוט למציאת קורסים מתאימים
 courseSchema.statics.findForUser = function(user) {
     const query = { isActive: true };
     
-    // סינון לפי גיל (ילד/הורה)
+    // סינון פשוט לפי גיל
     if (user.parentOrChild === 'ילד') {
         query.targetAudience = { $in: ['ילדים', 'כולם'] };
     }
     
     return this.find(query).populate('teacher', 'username');
-};
-
-// Method חדש - קורסים מותאמים לפי תחביבים!
-courseSchema.statics.getPersonalizedCourses = function(user) {
-    const query = { isActive: true };
-    
-    // סינון לפי גיל
-    if (user.parentOrChild === 'ילד') {
-        query.targetAudience = { $in: ['ילדים', 'כולם'] };
-    }
-    
-    // המיפוי החכם: תחביבים → קטגוריות קורסים
-    const hobbyToCategory = {
-        'אומנות ומוזיקה': ['songs', 'vocabulary'],
-        'פעילויות': ['conversation', 'grammar'], 
-        'צפיה בסרטים': ['vocabulary', 'conversation'],
-        'קריאת ספרים': ['reading', 'vocabulary', 'grammar']
-    };
-    
-    // מציאת קטגוריות רלוונטיות לפי תחביבי המשתמש
-    let relevantCategories = [];
-    if (user.favoriteHobbies && user.favoriteHobbies.length > 0) {
-        user.favoriteHobbies.forEach(hobby => {
-            if (hobbyToCategory[hobby]) {
-                relevantCategories = [...relevantCategories, ...hobbyToCategory[hobby]];
-            }
-        });
-        
-        // הסרת כפילויות
-        relevantCategories = [...new Set(relevantCategories)];
-        
-        // סינון לפי הקטגוריות הרלוונטיות
-        if (relevantCategories.length > 0) {
-            query.category = { $in: relevantCategories };
-        }
-    }
-    
-    return this.find(query)
-        .populate('teacher', 'username')
-        .sort({ 'stats.averageRating': -1, createdAt: -1 });
 };
 
 export default model('Course', courseSchema);

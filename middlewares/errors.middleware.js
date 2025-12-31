@@ -20,7 +20,7 @@ export const errorHandling = (err, req, res, next) => {
         error: message,
         timestamp: new Date().toISOString(),
         path: req.path,
-        fixLink: 'http://localhost:5000/fix.html'
+        fixLink: 'http://localhost:3000/fix.html'
 
     });
 };

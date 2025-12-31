@@ -6,12 +6,11 @@ const userSchema = new Schema({
     password: String,
     phone: String,
     address: {
-        type: {
+     
             country: String,
             city: String,
             street: String,
-        },
-        required: true
+      
     },
     age: {
         type: Number,
@@ -28,11 +27,27 @@ const userSchema = new Schema({
         type: [String],
         required: true,
         enum: ['אומנות ומוזיקה', 'פעילויות', 'צפיה בסרטים', 'קריאת ספרים']
-    },
-    gender: { type: String, enum: ['male', 'female'], required: true },
+    },    gender: { type: String, enum: ['male', 'female'], required: true },
     role: { type: String, enum: ['admin', 'teacher', 'user'] },
-    level: { type: Number, }
-    , lessons:{ type: [Schema.Types.ObjectId], ref: 'lesson' }  // לא בטוח  נכון
+//     level: { type: Number },
+    
+//     // קורסים שהמשתמש רשום אליהם (לתלמידים)
+//     enrolledCourses: [{ 
+//         type: Schema.Types.ObjectId, 
+//         ref: 'Course' 
+//     }],
+    
+//     // התקדמות בקורסים
+//     courseProgress: [{
+//         course: { type: Schema.Types.ObjectId, ref: 'Course' },
+//         completedLessons: [{ type: Schema.Types.ObjectId, ref: 'Lesson' }],
+//         currentLesson: { type: Schema.Types.ObjectId, ref: 'Lesson' },
+//         enrolledAt: { type: Date, default: Date.now },
+//         completedAt: Date,
+//         progress: { type: Number, min: 0, max: 100, default: 0 }
+//     }]
+// }, {
+//     timestamps: true
 });
 
 export default model('user', userSchema);

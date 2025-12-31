@@ -16,7 +16,7 @@ router.post('/create-first-admin', AuthController.createFirstAdmin);
 // User routes - מוגנים
 router.get('/profile', authenticateToken, UserController.getProfile);
 router.put('/profile', authenticateToken, UserController.updateProfile);
-router.get('/all', authenticateToken, requireAdmin, UserController.getAllUsers);
+router.get('/', authenticateToken, requireAdmin, UserController.getAllUsers);
 router.delete('/:userId', authenticateToken, requireAdmin, UserController.deleteUser);
 router.put('/:userId/promote', authenticateToken, requireAdmin, UserController.promoteToTeacher);
 

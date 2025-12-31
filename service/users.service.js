@@ -47,13 +47,20 @@ const UserService = {
     },
 
     login: async (email, password) => {
+
+          console.log(`Trying to login user with email: ${email}`);// Debug log
         const user = await User.findOne({ email });
+
         if (!user) {
+                    console.log("User not found");// Debug log
+
             throw new Error("Invalid credentials");
         }
         
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
+                    console.log("Invalid password");// Debug log
+
             throw new Error("Invalid credentials");
         }
         
@@ -83,8 +90,9 @@ const UserService = {
             role: user.role,
             phone: user.phone,
             age: user.age,
-            gender: user.gender,
-            createdAt: user.createdAt        };
+                        gender: user.gender,
+            createdAt: user.createdAt
+        };
     },
 
     // פונקציה כללית לעדכון משתמש (למנהלים)
