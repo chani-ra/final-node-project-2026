@@ -17,11 +17,8 @@ router.post('/create-first-admin', AuthController.createFirstAdmin);
 router.get('/profile', authenticateToken, UserController.getProfile);
 router.put('/profile', authenticateToken, UserController.updateProfile);
 router.get('/', authenticateToken, requireAdmin, UserController.getAllUsers);
-router.delete('/:userId', authenticateToken, requireAdmin, UserController.deleteUser);
 router.put('/:userId/promote', authenticateToken, requireAdmin, UserController.promoteToTeacher);
 
-// Admin-only routes - יצירת משתמשים חדשים
-router.post('/admin/create-admin', authenticateToken, requireAdmin, UserController.createAdmin);
-router.post('/admin/create-teacher', authenticateToken, requireAdmin, UserController.createTeacher);
+
 
 export default router;

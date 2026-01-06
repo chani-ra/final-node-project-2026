@@ -1,6 +1,17 @@
 import UserService from '../service/users.service.js';
-
+import sendEmail from '../service/emailService.js';
 export const UserController = {
+
+    sendTestEmail: async (req, res) => {
+        const { to, subject, text } = req.body; // נתונים ממידע הבקשה
+        try {
+            await sendEmail(to, subject, text);
+            res.status(200).json({ message: 'Email sent successfully' });
+        } catch (error) {
+            res.status(500).json({ message: 'Failed to send email', error: error.message });
+        }
+    },
+
     // קבלת פרופיל - משתמש בפונקציה המסוננת מהסרביס
     getProfile: async (req, res) => {
         try {
@@ -110,6 +121,8 @@ export const UserController = {
             const currentUser = req.user; // מגיע מה-middleware
             
             const newAdmin = await UserService.addAdminByAdmin(userData, currentUser);
+            await sendEmail(newAdmin.email, 'Admin Account Created',
+                `Hello ${newAdmin.username},\n\nAn admin account has been created for you.\n\nBest regards,\nThe Team`);
             
             res.status(201).json({
                 success: true,
@@ -131,6 +144,8 @@ export const UserController = {
             const currentUser = req.user; // מגיע מה-middleware
             
             const newTeacher = await UserService.addTeacherByAdmin(userData, currentUser);
+            await sendEmail(newTeacher.email, 'Teacher Account Created',
+                `Hello ${newTeacher.username},\n\nA teacher account has been created for you.\n\nBest regards,\nThe Team`);
             
             res.status(201).json({
                 success: true,

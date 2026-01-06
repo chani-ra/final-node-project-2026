@@ -7,6 +7,7 @@ import { config } from 'dotenv';
 import { connectDB } from './config/db.js';
 
 import userRoutes from './routes/users.route.js';
+import adminRoutes from './routes/admin.route.js';
 
 config();
 
@@ -27,7 +28,7 @@ app.get('/', (req, res) => {
 
 // Routes                                       
 app.use('/users',userRoutes);
-// app.use('/admin', userRoutes); // נתיב למנהלים
+app.use('/admin', adminRoutes); // הוסף נתיב למנהלים
 
 
 const PORT = process.env.PORT || 5000;

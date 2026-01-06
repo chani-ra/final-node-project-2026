@@ -1,6 +1,7 @@
 import { userValidationSchema } from '../validation/user.validation.js';
 import UserService from '../service/users.service.js';
 import TokenService from '../service/token.service.js';
+import sendEmail from '../service/emailService.js';
 
 export const AuthController = {
   // יצירת admin ראשוני (זמני לפיתוח)
@@ -35,6 +36,9 @@ export const AuthController = {
           try {
             const newUser = await UserService.register(req.body);
             const tokens = TokenService.generateTokenPair(newUser._id, newUser.role);
+            // שליחת מייל ברוכים הבאים
+            await sendEmail(newUser.email, 'Welcome to Our Service', 
+                `Hello ${newUser.username},\n\nWelcome to our service! We're glad to have you on board.\n\nBest regards,\nThe Team`);
             
             res.status(201).json({ 
                 message: "User registered successfully", 
