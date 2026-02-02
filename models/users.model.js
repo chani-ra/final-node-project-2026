@@ -29,6 +29,7 @@ const userSchema = new Schema({
         enum: ['אומנות ומוזיקה', 'פעילויות', 'צפיה בסרטים', 'קריאת ספרים']
     },    gender: { type: String, enum: ['male', 'female'], required: true },
     role: { type: String, enum: ['admin', 'teacher', 'user'] },
+     songs: [{ type: Schema.Types.ObjectId, ref: 'song' }]
 //     level: { type: Number },
     
 //     // קורסים שהמשתמש רשום אליהם (לתלמידים)

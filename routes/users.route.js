@@ -5,15 +5,12 @@ import { authenticateToken, requireAdmin } from "../middlewares/auth.middleware.
 
 const router = Router();
 
-// Authentication routes - הבסיס שעובד!
 router.post('/register', AuthController.register);
 router.post('/login', AuthController.login);  
 router.post('/refresh-token', AuthController.refreshToken);
 
-// זמני לפיתוח - יצירת admin ראשוני
 router.post('/create-first-admin', AuthController.createFirstAdmin);
 
-// User routes - מוגנים
 router.get('/profile', authenticateToken, UserController.getProfile);
 router.put('/profile', authenticateToken, UserController.updateProfile);
 router.get('/', authenticateToken, requireAdmin, UserController.getAllUsers);

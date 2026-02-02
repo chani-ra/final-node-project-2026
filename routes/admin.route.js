@@ -11,7 +11,7 @@ router.post('/create-teacher', authenticateToken, requireAdmin, UserController.c
 
 router.delete('/:userId', authenticateToken, requireAdmin, UserController.deleteUser);
 
-router.post('/send-test-email', authenticateToken, requireAdmin, UserController.sendTestEmail);
+//  router.post('/send-test-email', authenticateToken, requireAdmin, UserController.sendTestEmail);
 
 
 export default router;
