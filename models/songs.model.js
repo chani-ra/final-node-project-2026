@@ -27,7 +27,8 @@ const songSchema = new Schema({
     targetAge: { type: String, required: true },
     composer: { type: String, required: true },
     lyricist: { type: String, required: true },
-    audioFileName: { type: String }, // שם הקובץ בשרת
+    audioFileName: { type: String },
+    lesson: { type: Schema.Types.ObjectId, ref: 'Lesson' }, // ✅ קישור לשיעור
     createdAt: { type: Date, default: Date.now }
 });
 

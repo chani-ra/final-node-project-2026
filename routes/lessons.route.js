@@ -6,44 +6,10 @@ import upload from "../config/multer.js";
 const router = Router();
 
 /**
- * PUBLIC ROUTES - כל משתמש יכול לגשת
+ * ⚠️ TEACHER ROUTES - חייבים להיות ראשונים!
  */
 
-// 🔍 חיפוש שיעורים
-router.get('/search', LessonController.searchLessons);
-
-// 📊 סטטיסטיקות מורה (PUBLIC)
-router.get('/stats/:instructorId', LessonController.getInstructorStats);
-
-// 📖 קבלת שיעור ספציפי
-router.get('/:lessonId', LessonController.getLessonById);
-
-// 📺 השמעת ווידאו בזרם
-router.get('/:lessonId/stream', LessonController.streamLesson);
-
-/**
- * AUTHENTICATED ROUTES - צריך להיות מחובר
- */
-
-// 📚 קבלת שיעורים של מורה ספציפי
-router.get(
-  '/instructor/:instructorId',
-  authenticateToken,
-  LessonController.getInstructorLessons
-);
-
-// 👤 הרשמה לשיעור (סטודנט)
-router.post(
-  '/:lessonId/enroll',
-  authenticateToken,
-  LessonController.enrollStudent
-);
-
-/**
- * TEACHER ROUTES - רק מורים
- */
-
-// ➕ העלאת שיעור חדש
+// ➕ העלאת שיעור - MUST BE FIRST
 router.post(
   '/upload',
   authenticateToken,
@@ -67,6 +33,40 @@ router.delete(
   authenticateToken,
   requireTeacher,
   LessonController.deleteLesson
+);
+
+/**
+ * PUBLIC ROUTES - אחרי זה
+ */
+
+// 🔍 חיפוש שיעורים
+router.get('/search', LessonController.searchLessons);
+
+// 📊 סטטיסטיקות מורה
+router.get('/stats/:instructorId', LessonController.getInstructorStats);
+
+// 📖 קבלת שיעור ספציפי
+router.get('/:lessonId', LessonController.getLessonById);
+
+// 📺 השמעת ווידאו בזרם
+router.get('/:lessonId/stream', LessonController.streamLesson);
+
+/**
+ * AUTHENTICATED ROUTES
+ */
+
+// 📚 קבלת שיעורים של מורה
+router.get(
+  '/instructor/:instructorId',
+  authenticateToken,
+  LessonController.getInstructorLessons
+);
+
+// 👤 הרשמה לשיעור
+router.post(
+  '/:lessonId/enroll',
+  authenticateToken,
+  LessonController.enrollStudent
 );
 
 export default router;

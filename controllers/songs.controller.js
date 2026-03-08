@@ -5,13 +5,13 @@ import path from 'path';
 
 export const SongsController = {
     // ➕ הוספת שיר
+    // ➕ הוספת שיר (עם זיהוי מורה)
     addSong: async (req, res) => {
-        console.log('Received file:', req.file); // 🔍 לוג
-        console.log('Request body:', req.body); // 🔍 לוג
+        console.log('Received file:', req.file);
+        console.log('Request body:', req.body);
 
         try {
-            // Validation - בדוק שדות חובה
-            const { theme, duration, level, targetAge, composer, lyricist } = req.body;
+            const { theme, duration, level, targetAge, composer, lyricist, lessonId } = req.body;
 
             if (!theme || !duration || !level || !targetAge || !composer || !lyricist) {
                 return res.status(400).json({
@@ -19,11 +19,8 @@ export const SongsController = {
                 });
             }
 
-            // בדוק שקובץ קיים
             if (!req.file) {
-                return res.status(400).json({
-                    message: 'קובץ אודיו חובה'
-                });
+                return res.status(400).json({ message: 'קובץ אודיו חובה' });
             }
 
             const newSongData = {
@@ -33,13 +30,12 @@ export const SongsController = {
                 targetAge: targetAge.trim(),
                 composer: composer.trim(),
                 lyricist: lyricist.trim(),
-                audioFileName: req.file.filename // ✅ זה השם של הקובץ בשרת
+                audioFileName: req.file.filename,
+                lesson: lessonId || null // ✅ קישור אופציונלי לשיעור
             };
 
             const newSong = new Song(newSongData);
             await newSong.save();
-
-            console.log('Song saved successfully:', newSong);
 
             res.status(201).json({
                 message: 'שיר נוסף בהצלחה',
@@ -51,7 +47,7 @@ export const SongsController = {
             res.status(400).json({ message: error.message });
         }
     },
-
+    
     // 📖 קבלת כל השירים
     getAllSongs: async (req, res) => {
         try {

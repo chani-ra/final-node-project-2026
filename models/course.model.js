@@ -1,130 +1,108 @@
-import { Schema, model } from 'mongoose';
+// models/course.model.js
+import { Schema, model } from "mongoose";
 
-const courseSchema = new Schema({
+const courseSchema = new Schema(
+  {
     title: {
-        type: String,
-        required: true,
-        trim: true
+      type: String,
+      required: [true, 'שם הקורס חובה'],
+      trim: true,
+      maxlength: [200, 'שם קורס לא יכול להיות יותר מ-200 תווים'],
     },
+
     description: {
-        type: String,
-        required: true
+      type: String,
+      trim: true,
+      maxlength: [2000, 'תיאור לא יכול להיות יותר מ-2000 תווים'],
+      default: '',
     },
-    level: {
-        type: String,
-        enum: ['beginner', 'intermediate', 'advanced'],
-        required: true
+
+    instructorId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
     },
+
     category: {
-        type: String,
-        enum: ['grammar', 'vocabulary', 'songs', 'conversation', 'reading'],
-        required: true
+      type: String,
+      enum: ['תכנות', 'מוזיקה', 'ספורט', 'אומנות', 'מדע', 'שפות', 'כללי'],
+      required: true,
     },
-    // המורה שיצר את הקורס
-    teacher: {
+
+    level: {
+      type: String,
+      enum: ['beginner', 'intermediate', 'advanced'],
+      default: 'beginner',
+    },
+
+    // 📚 תוכן
+    lessons: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'Lesson',
+      },
+    ],
+
+    songs: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'song',
+      },
+    ],
+
+    // ✏️ תרגילים ובחנים (לוגיקה בהמשך)
+    exercises: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'Exercise',
+      },
+    ],
+
+    quizzes: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'Quiz',
+      },
+    ],
+
+    // 👥 סטודנטים
+    enrolledStudents: [
+      {
         type: Schema.Types.ObjectId,
         ref: 'User',
-        required: true
-    },
-    
-    // תוכן הקורס - פשוט!
-    content: {
-        // מילים חדשות
-        vocabulary: [{
-            english: String,
-            hebrew: String,
-            example: String
-        }],
-        // תרגילים
-        exercises: [{
-            question: String,
-            options: [String],
-            correctAnswer: Number
-        }],
-        // שירים (אם יש)
-        songs: [{
-            type: Schema.Types.ObjectId,
-            ref: 'song'
-        }]
-    },
-    
-    // מידע בסיסי על הקורס
-    targetAudience: {
-        type: String,
-        enum: ['ילדים', 'מבוגרים', 'כולם'],
-        default: 'כולם'
-    },
-    
-    // סטטוסים
-    isActive: {
-        type: Boolean,
-        default: true
-    },
-    
-    // סטטיסטיקות בסיסיות
-    stats: {
-        enrolledStudents: { type: Number, default: 0 },
-        averageRating: { type: Number, min: 0, max: 5, default: 0 }
-    }
-}, {
-    timestamps: true
-});
+      },
+    ],
 
-// Index בסיסי
-courseSchema.index({ level: 1, category: 1 });
-courseSchema.index({ teacher: 1 });
-courseSchema.index({ targetAudience: 1 });
+    isPublic: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
 
-// Method פשוט למציאת קורסים מתאימים לפי תחביבים
-courseSchema.statics.findForUser = function(user) {
-    const query = { isActive: true };
-    
-    // סינון לפי גיל (ילד/הורה)
-    if (user.parentOrChild === 'ילד') {
-        query.targetAudience = { $in: ['ילדים', 'כולם'] };
-    }
-    
-    return this.find(query).populate('teacher', 'username');
-};
+    totalViews: {
+      type: Number,
+      default: 0,
+    },
 
-// Method חדש - קורסים מותאמים לפי תחביבים!
-courseSchema.statics.getPersonalizedCourses = function(user) {
-    const query = { isActive: true };
-    
-    // סינון לפי גיל
-    if (user.parentOrChild === 'ילד') {
-        query.targetAudience = { $in: ['ילדים', 'כולם'] };
-    }
-    
-    // המיפוי החכם: תחביבים → קטגוריות קורסים
-    const hobbyToCategory = {
-        'אומנות ומוזיקה': ['songs', 'vocabulary'],
-        'פעילויות': ['conversation', 'grammar'], 
-        'צפיה בסרטים': ['vocabulary', 'conversation'],
-        'קריאת ספרים': ['reading', 'vocabulary', 'grammar']
-    };
-    
-    // מציאת קטגוריות רלוונטיות לפי תחביבי המשתמש
-    let relevantCategories = [];
-    if (user.favoriteHobbies && user.favoriteHobbies.length > 0) {
-        user.favoriteHobbies.forEach(hobby => {
-            if (hobbyToCategory[hobby]) {
-                relevantCategories = [...relevantCategories, ...hobbyToCategory[hobby]];
-            }
-        });
-        
-        // הסרת כפילויות
-        relevantCategories = [...new Set(relevantCategories)];
-        
-        // סינון לפי הקטגוריות הרלוונטיות
-        if (relevantCategories.length > 0) {
-            query.category = { $in: relevantCategories };
-        }
-    }
-    
-    return this.find(query)
-        .populate('teacher', 'username')
-        .sort({ 'stats.averageRating': -1, createdAt: -1 });
-};
+    rating: {
+      type: Number,
+      min: 0,
+      max: 5,
+      default: 0,
+    },
+
+    createdAt: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
+
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { timestamps: true }
+);
 
 export default model('Course', courseSchema);

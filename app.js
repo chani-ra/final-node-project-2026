@@ -1,46 +1,65 @@
 
-// import express, {json ,urlencoded } from 'express';
+// import express, { json, urlencoded } from 'express';
 // import morgan from 'morgan';
 // import cors from 'cors';
 // import { config } from 'dotenv';
+// import path from 'path';
+// import { fileURLToPath } from 'url';
 
+// config();
 
 // import { connectDB } from './config/db.js';
 
 // import userRoutes from './routes/users.route.js';
 // import adminRoutes from './routes/admin.route.js';
-// import songsRoutes from './routes/songs.route.js'
+// import songsRoutes from './routes/songs.route.js';
+// import lessonRoutes from './routes/lessons.route.js';
 
-// config();
-
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
 
 // const app = express();
 
-//  connectDB();
+// connectDB();
 
+// // ============ MIDDLEWARE בסדר נכון ============
+
+// // 1️⃣ Parsing middleware (חובה ראשונה!)
 // app.use(json());
-// app.use(urlencoded());
+// app.use(urlencoded({ extended: true }));
 
+// // 2️⃣ CORS וLogging
 // app.use(cors());
 // app.use(morgan('dev'));
 
+// // 3️⃣ Static files (לפני routes!)
 // app.use('/songsList', express.static('songsList'));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// // 4️⃣ Test route
 // app.get('/', (req, res) => {
-//     res.send('Welcome to the Learning Platform API');
+//   res.send('Welcome to the Learning Platform API');
 // });
 
-// // Routes                                       
-// app.use('/users',userRoutes);
+// // 5️⃣ Routes (אחרי middleware!)
+// app.use('/users', userRoutes);
 // app.use('/admin', adminRoutes);
-// app.use('/songs',songsRoutes );
+// app.use('/songs', songsRoutes);
+// app.use('/lessons', lessonRoutes);
 
+// // ============ Error handling ============
+// app.use((err, req, res, next) => {
+//   console.error('❌ Error:', err.message);
+//   res.status(500).json({ message: err.message });
+// });
 
+// // ============ Server ============
 // const PORT = process.env.PORT || 3000;
 // app.listen(PORT, () => {
-//     console.log(`Server is running on port http://localhost:${PORT}`);
+//   console.log(`🚀 Server is running on http://localhost:${PORT}`);
 // });
 
+// export default app;
 
 import express, { json, urlencoded } from 'express';
 import morgan from 'morgan';
@@ -49,130 +68,59 @@ import { config } from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ============ CONFIG ============
 config();
 
-// ============ DATABASE CONNECTION ============
 import { connectDB } from './config/db.js';
-connectDB();
-
-// ============ ROUTES ============
 import userRoutes from './routes/users.route.js';
 import adminRoutes from './routes/admin.route.js';
+import courseRoutes from './routes/courses.route.js';
 import songsRoutes from './routes/songs.route.js';
-import lessonRoutes from './routes/lessons.route.js'; // ➕ חדש
+import lessonRoutes from './routes/lessons.route.js';
 
-// ============ MIDDLEWARE IMPORTS ============
-import { handleUploadError } from './config/multer.js'; // ➕ חדש
 
-// ============ ES6 __dirname ============
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ============ INITIALIZE EXPRESS ============
 const app = express();
 
+connectDB();
+
 // ============ MIDDLEWARE ============
-app.use(json({ limit: '10mb' })); // הגדלנו limit לווידאו
-app.use(urlencoded({ limit: '10mb', extended: true })); // ➕ extended: true
 
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+// 1️⃣ Parsing middleware - ⚠️ עדכן את ה-limit
+app.use(json({ limit: '500mb' })); // ✅ שינוי מ-50mb ל-500mb
+app.use(urlencoded({ extended: true, limit: '500mb' })); // ✅ שינוי מ-50mb ל-500mb
 
+// 2️⃣ CORS וLogging
+app.use(cors());
 app.use(morgan('dev'));
 
-// ============ STATIC FILES ============
+// 3️⃣ Static files
 app.use('/songsList', express.static('songsList'));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); // ➕ חדש - ווידאו
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ============ HEALTH CHECK ============
+// 4️⃣ Test route
 app.get('/', (req, res) => {
-  res.status(200).json({
-    message: 'Welcome to the Learning Platform API',
-    version: '1.0.0',
-    endpoints: {
-      users: '/users',
-      admin: '/admin',
-      songs: '/songs',
-      lessons: '/lessons', // ➕ חדש
-    },
-  });
+  res.send('Welcome to the Learning Platform API');
 });
 
-// ============ API ROUTES ============
-app.use('/api/users', userRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/songs', songsRoutes);
-app.use('/api/lessons', lessonRoutes); // ➕ חדש
+// 5️⃣ Routes
+app.use('/users', userRoutes);
+app.use('/admin', adminRoutes);
+app.use('/courses', courseRoutes);
+app.use('/songs', songsRoutes);
+app.use('/lessons', lessonRoutes);
 
-// ============ UPLOAD ERROR HANDLING ============
-app.use(handleUploadError); // ➕ חדש - חייב להיות אחרי הרוטים
-
-// ============ 404 HANDLER ============
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route ${req.originalUrl} not found`,
-  });
-});
-
-// ============ GLOBAL ERROR HANDLER ============
+// ============ Error handling ============
 app.use((err, req, res, next) => {
-  console.error('❌ Global Error:', err);
-
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation Error',
-      errors: Object.values(err.errors).map((e) => e.message),
-    });
-  }
-
-  // Mongoose cast error
-  if (err.name === 'CastError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid ID format',
-    });
-  }
-
-  // JWT errors
-  if (err.name === 'JsonWebTokenError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid token',
-    });
-  }
-
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Token expired',
-    });
-  }
-
-  // Default error
-  res.status(err.statusCode || 500).json({
-    success: false,
-    message: err.message || 'Internal Server Error',
-  });
+  console.error('❌ Error:', err.message);
+  res.status(500).json({ message: err.message });
 });
 
-// ============ START SERVER ============
+// ============ Server ============
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  console.log(`📚 Learning Platform API v1.0.0`);
-  console.log(`🔗 Available routes:`);
-  console.log(`   - Users:   /api/users`);
-  console.log(`   - Admin:   /api/admin`);
-  console.log(`   - Songs:   /api/songs`);
-  console.log(`   - Lessons: /api/lessons ✨`);
 });
 
 export default app;
