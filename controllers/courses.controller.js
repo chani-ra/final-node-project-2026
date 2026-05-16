@@ -34,6 +34,9 @@ export const CourseController = {
   // ✅ יצירת קורס
   createCourse: async (req, res) => {
     try {
+      console.log('📥 req.body:', req.body);
+      console.log('👤 req.user:', req.user);
+      
       const { title, description, category, level, isPublic } = req.body;
 
       if (!title || !category) {
@@ -60,7 +63,7 @@ export const CourseController = {
         course: newCourse,
       });
     } catch (error) {
-      console.error('❌ Error:', error);
+      console.error('❌ Error creating course:', error);
       res.status(400).json({
         success: false,
         message: error.message,
@@ -91,6 +94,28 @@ export const CourseController = {
     try {
       const result = await CourseService.getInstructorCourses(
         req.params.instructorId,
+        parseInt(req.query.page) || 1,
+        parseInt(req.query.limit) || 10
+      );
+
+      res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      console.error('❌ Error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  // ✅ קורסים רשומים לתלמיד
+  getEnrolledCourses: async (req, res) => {
+    try {
+      const result = await CourseService.getEnrolledCourses(
+        req.user.id,
         parseInt(req.query.page) || 1,
         parseInt(req.query.limit) || 10
       );

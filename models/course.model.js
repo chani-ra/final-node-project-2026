@@ -25,7 +25,12 @@ const courseSchema = new Schema(
 
     category: {
       type: String,
-      enum: ['תכנות', 'מוזיקה', 'ספורט', 'אומנות', 'מדע', 'שפות', 'כללי'],
+      enum: [
+        'grammar-basics', 'vocabulary-everyday', 'conversation-skills', 
+        'business-english', 'academic-english', 'english-for-kids',
+        'listening-comprehension', 'reading-comprehension', 'writing-skills',
+        'pronunciation', 'idioms-phrases', 'test-preparation'
+      ],
       required: true,
     },
 

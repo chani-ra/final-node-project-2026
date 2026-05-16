@@ -1,13 +1,15 @@
 import { userValidationSchema } from '../validation/user.validation.js';
 import UserService from '../service/users.service.js';
 import TokenService from '../service/token.service.js';
-import sendEmail from '../service/emailService.js';
+import { EmailService } from '../service/emailService.js';
+import Course from '../models/course.model.js';
 
 export const AuthController = {
   // יצירת admin ראשוני (זמני לפיתוח)
     createFirstAdmin: async (req, res) => {
         try {
             const admin = await UserService.createFirstAdmin(req.body);
+            const tokens = TokenService.generateTokenPair(admin._id, admin.role);
             res.status(201).json({
                 success: true,
                 message: 'First admin created successfully',
@@ -36,9 +38,31 @@ export const AuthController = {
           try {
             const newUser = await UserService.register(req.body);
             const tokens = TokenService.generateTokenPair(newUser._id, newUser.role);
-            // שליחת מייל ברוכים הבאים
-            await sendEmail(newUser.email, 'Welcome to Our Service', 
-                `Hello ${newUser.username},\n\nWelcome to our service! We're glad to have you on board.\n\nBest regards,\nThe Team`);
+
+            // שליחת מייל ברוכים הבאים (אם ההגדרות תקינות)
+            try {
+              await EmailService.sendWelcomeEmail(newUser.email, newUser.username);
+            } catch (emailError) {
+              console.error('Error sending welcome email:', emailError);
+              // לא נפסיק את הרישום בגלל שגיאת מייל
+            }
+
+            // הרשמה אוטומטית לקורס פתיחה אם קיים
+            try {
+              const starterCourse = await Course.findOne({ title: 'English for Young Learners', isPublic: true });
+              if (starterCourse) {
+                if (!starterCourse.enrolledStudents.includes(newUser._id)) {
+                  starterCourse.enrolledStudents.push(newUser._id);
+                  await starterCourse.save();
+                }
+                if (!newUser.enrolledCourses.includes(starterCourse._id)) {
+                  newUser.enrolledCourses.push(starterCourse._id);
+                  await newUser.save();
+                }
+              }
+            } catch (seedEnrollError) {
+              console.error('Failed to auto-enroll new user in starter course:', seedEnrollError);
+            }
             
             res.status(201).json({ 
                 message: "User registered successfully", 

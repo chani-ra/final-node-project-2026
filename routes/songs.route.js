@@ -30,6 +30,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import SongsController from '../controllers/songs.controller.js';
+import { authenticateToken, requireTeacher } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
@@ -62,10 +63,10 @@ const upload = multer({
 });
 
 // ✅ שדה הקובץ חייב להיות 'audioFile' (זה מה שShולחים ב-React)
-router.post('/song', upload.single('audioFile'), SongsController.addSong);
+router.post('/song', authenticateToken, requireTeacher, upload.single('audioFile'), SongsController.addSong);
 router.get('/', SongsController.getAllSongs); 
-router.put('/song/:id', upload.single('audioFile'), SongsController.updateSong); 
-router.delete('/song/:id', SongsController.deleteSong);  
+router.put('/song/:id', authenticateToken, requireTeacher, upload.single('audioFile'), SongsController.updateSong); 
+router.delete('/song/:id', authenticateToken, requireTeacher, SongsController.deleteSong);  
 
 export default router;
 

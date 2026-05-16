@@ -126,6 +126,21 @@ const UserService = {
     },
 
     // פונקציה זמנית ליצירת admin ראשוני (רק לפיתוח!)
+    enrollUserInCourse: async (userId, courseId) => {
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        if (user.enrolledCourses.includes(courseId)) {
+            throw new Error('Already enrolled in this course');
+        }
+
+        user.enrolledCourses.push(courseId);
+        await user.save();
+        return user;
+    },
+
     createFirstAdmin: async (userData) => {
         // בדיקה שאין כבר admin
         const existingAdmin = await User.findOne({ role: 'admin' });

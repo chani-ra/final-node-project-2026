@@ -28,6 +28,7 @@ const songSchema = new Schema({
     composer: { type: String, required: true },
     lyricist: { type: String, required: true },
     audioFileName: { type: String },
+    uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     lesson: { type: Schema.Types.ObjectId, ref: 'Lesson' }, // ✅ קישור לשיעור
     createdAt: { type: Date, default: Date.now }
 });

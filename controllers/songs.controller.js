@@ -31,6 +31,7 @@ export const SongsController = {
                 composer: composer.trim(),
                 lyricist: lyricist.trim(),
                 audioFileName: req.file.filename,
+                uploadedBy: req.user.id,
                 lesson: lessonId || null // ✅ קישור אופציונלי לשיעור
             };
 
