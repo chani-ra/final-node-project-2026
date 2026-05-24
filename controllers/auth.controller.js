@@ -1,7 +1,7 @@
 import { userValidationSchema } from '../validation/user.validation.js';
 import UserService from '../service/users.service.js';
 import TokenService from '../service/token.service.js';
-import AIService from '../service/ai.service.js';
+import AIService from '../service/aiService.js';
 import Course from '../models/course.model.js';
 
 export const AuthController = {

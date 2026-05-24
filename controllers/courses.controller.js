@@ -1,4 +1,4 @@
-import CourseService from '../service/course.service.js';
+import CourseService from '../service/courses.service.js';
 import UserService from '../service/users.service.js';
 
 export const CourseController = {

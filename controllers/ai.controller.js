@@ -1,107 +1,180 @@
 import { GoogleGenAI } from '@google/genai';
 
-// הגדרת החיבור ל-Gemini עם המפתח מקובץ ה-.env
+import User from '../models/users.model.js';
+
+// חיבור ל-Gemini באמצעות מפתח ה-API מהסביבה
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export const AiController = {
 
-    // 📝 פיצ'ר 1: בדיקת חיבור חופשי של תלמיד
-    checkEssay: async (req, res) => {
+    // 📝 1. תיקון דקדוק + שמירה ל-DB
+    correctGrammar: async (req, res, next) => {
         try {
-            const { text, studentLevel } = req.body;
+            const { text } = req.body;
+            const userId = req.user.id;
+            if (!text) return res.status(400).json({ message: 'Text is required' });
 
-            if (!text) {
-                return res.status(400).json({ message: 'נא לשלוח טקסט לבדיקה' });
-            }
-
-            const level = studentLevel || 'intermediate';
-            
-            const prompt = `
-            You are an expert English teacher. 
-            Review the following essay written by an ${level} English student.
-            Please analyze the text and provide the output strictly as a JSON object with the following structure:
-            {
-                "originalText": "the text submitted",
-                "score": a number from 0 to 100 representing the grade,
-                "generalFeedback": "A short, encouraging summary of how they did",
-                "grammarCorrections": [
-                    { "mistake": "the incorrect word/phrase", "correction": "the correct word/phrase", "explanation": "why it was wrong" }
-                ]
-            }
-            
-            Here is the text to check:
-            "${text}"
-            `;
+            const prompt = `You are an English teacher for Hebrew speakers. Correct the grammar and spelling. Return JSON: {"original": "${text}", "corrected": "...", "explanation": "הסבר בעברית"}. Text: "${text}"`;
 
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
-                config: {
-                    responseMimeType: "application/json", // מכריח את ה-AI להחזיר JSON תקין
-                }
+                config: { responseMimeType: "application/json" }
             });
 
-            // חילוץ התשובה מהמודל
-            const result = JSON.parse(response.text());
+            const aiResult = JSON.parse(response.text);
 
-            res.status(200).json({
-                success: true,
-                data: result
-            });
+            // עדכון המשתמש ושמירה ב-DB
+            const updatedUser = await User.findByIdAndUpdate(userId, {
+                $push: { grammarHistory: aiResult }
+            }, { new: true });
 
+            // הדפסה לטרמינל כדי לוודא שמירה
+            console.log("✅ Data saved successfully to DB for user:", userId);
+            console.log("📝 New history entry:", aiResult);
+
+            res.status(200).json({ success: true, data: aiResult });
         } catch (error) {
-            console.error('Error in checkEssay:', error);
-            res.status(500).json({ success: false, message: 'שגיאה בבדיקת החיבור מול ה-AI' });
+            next(error);
         }
     },
 
-    // 🧠 פיצ'ר 2: יצירת בחן אמריקאי אוטומטי
-    generateQuiz: async (req, res) => {
+    // 🌐 2. תרגום טקסט
+    translateText: async (req, res, next) => {
         try {
-            const { topic, level, numberOfQuestions } = req.body;
+            const { text, targetLang = 'Hebrew' } = req.body;
+            if (!text) return res.status(400).json({ message: 'Text is required' });
 
-            if (!topic) {
-                return res.status(400).json({ message: 'נא לספק נושא לבחן' });
-            }
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: `Translate the following text into ${targetLang}. Return ONLY the translated text.\nText: "${text}"`
+            });
 
-            const qCount = numberOfQuestions || 5;
-            const engLevel = level || 'intermediate';
+            res.status(200).json({ success: true, translation: response.text.trim() });
+        } catch (error) {
+            next(error);
+        }
+    },
 
-            const prompt = `
-            You are an expert English course creator.
-            Create a multiple-choice English quiz about "${topic}" suitable for ${engLevel} level students.
-            Generate exactly ${qCount} questions.
-            Return the result strictly as a JSON array containing objects with the exact following structure:
-            [
-                {
-                    "question": "The question text",
-                    "options": ["Option A", "Option B", "Option C", "Option D"],
-                    "correctAnswer": "The exact matching string from the options array",
-                    "points": 10
-                }
-            ]
-            `;
+    // 💬 3. תרגול שיחה
+    conversation: async (req, res, next) => {
+        try {
+            const { message, level } = req.body;
+            if (!message) return res.status(400).json({ message: 'Message is required' });
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: `You are a friendly English conversation partner. Respond to: "${message}" for ${level || 'intermediate'} level.`
+            });
+            res.status(200).json({ success: true, reply: response.text.trim() });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    // 🎯 4. יצירת תרגילים
+    generateExercise: async (req, res, next) => {
+        try {
+            const { topic, level, exerciseType } = req.body;
+            const prompt = `Create a ${exerciseType || 'vocabulary'} exercise about "${topic}" for ${level || 'intermediate'} level. Return strictly as JSON array: [{"sentence": "...", "correctAnswer": "...", "hint": "..."}]`;
 
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                }
+                config: { responseMimeType: "application/json" }
             });
 
-            const questions = JSON.parse(response.text());
-
-            res.status(200).json({
-                success: true,
-                topic,
-                level: engLevel,
-                questions
-            });
-
+            res.status(200).json({ success: true, data: JSON.parse(response.text) });
         } catch (error) {
-            console.error('Error in generateQuiz:', error);
-            res.status(500).json({ success: false, message: 'שגיאה ביצירת הבחן מול ה-AI' });
+            next(error);
+        }
+    },
+
+    // ✍️ 5. בדיקת חיבור
+    checkEssay: async (req, res,  next) => {
+        try {
+            const { text, studentLevel } = req.body;
+            const prompt = `Review this essay (level ${studentLevel || 'intermediate'}). Return JSON: {"score": 85, "generalFeedback": "...", "grammarCorrections": [{"mistake": "...", "correction": "...", "explanation": "..."}]}. Essay: "${text}"`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: { responseMimeType: "application/json" }
+            });
+
+            res.status(200).json({ success: true, data: JSON.parse(response.text) });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    // 🧠 6. יצירת בחן אמריקאי
+    generateQuiz: async (req, res, next) => {
+        try {
+            const { topic, difficulty, questionCount } = req.body;
+            const prompt = `Create a quiz about "${topic}". Generate ${questionCount || 5} questions. Return JSON array: [{"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "..."}]`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: { responseMimeType: "application/json" }
+            });
+
+            res.status(200).json({ success: true, questions: JSON.parse(response.text) });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    // 💡 7. שמירת תוצאות בוחן (הפיצ'ר החדש שלך)
+    saveQuizResult: async (req, res, next) => {
+        try {
+            const { topic, score, totalQuestions } = req.body;
+            const userId = req.user.id;
+            await User.findByIdAndUpdate(userId, {
+                $push: { quizResults: { topic, score, totalQuestions, completedAt: new Date() } }
+            });
+            res.status(200).json({ success: true, message: 'Quiz result saved!' });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    // 📈 8. יצירת תוכנית למידה
+    generateLearningPlan: async (req, res, next) => {
+        try {
+            const prompt = `Generate a 4-week study schedule.
+            Important: the text must be in Hebrew .
+            // Add feedback and wishes at the end of the plan.
+            // Address the user's name.
+             Return JSON array: [{"week": 1, "focus": "...", "tasks": ["..."]}].`;
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: { responseMimeType: "application/json" }
+            });
+            res.status(200).json({ success: true, plan: JSON.parse(response.text) });
+        } catch (error) {
+            console.error('❌ AI Learning Plan Error:', error.message || error);
+            next(error);
+        }
+    },
+
+    // 💡 9. טיפים ללמידה
+    getStudyTips: async (req, res, next) => {
+        try {
+            const { level, focusArea } = req.query;
+            const prompt = `Provide 3 study tips for level ${level || 'intermediate'} in ${focusArea || 'general'}.
+            Important: The explanation must be in Hebrew and in English.
+            Return JSON array of strings.`;
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: { responseMimeType: "application/json" }
+            });
+            res.status(200).json({ success: true, tips: JSON.parse(response.text) });
+        } catch (error) {
+            next(error);
         }
     }
 };

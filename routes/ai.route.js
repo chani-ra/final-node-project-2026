@@ -1,31 +1,34 @@
 import { Router } from 'express';
-import { AiController } from '../controllers/ai.controller.js';
+import AiController from '../controllers/ai.controller.js'; // 👈 תיקון: ייבוא דיפולטיבי ללא סוגריים מסולסלים
 import { authenticateToken } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-// 🔒 כל ראוטי ה-AI דורשים אימות
+// 🔒 כל ראוטי ה-AI דורשים אימות טוקן אוטומטית
 router.use(authenticateToken);
 
-// 📝 בדיקת דקדוק
+// 📝 1. בדיקת דקדוק
 router.post('/grammar-correct', AiController.correctGrammar);
 
-// 💬 תרגול שיחה
+// 🌐 2. תרגום טקסט (הפיצ'ר החדש!)
+router.post('/translate', AiController.translateText);
+
+// 💬 3. תרגול שיחה
 router.post('/conversation', AiController.conversation);
 
-// 🎯 יצירת תרגילים
+// 🎯 4. יצירת תרגילים
 router.post('/generate-exercise', AiController.generateExercise);
 
-// ✍️ בדיקת חיבור חופשי ומתן פידבק
-router.post('/writing-feedback', AiController.checkEssay); 
+// ✍️ 5. בדיקת חיבור חופשי ומתן פידבק
+router.post('/check-essay', AiController.checkEssay); 
 
-// 💡 קבלת טיפים ללמידה
+// 💡 6. קבלת טיפים ללמידה
 router.get('/study-tips', AiController.getStudyTips);
 
-// 🧠 יצירת בחן אמריקאי אוטומטי
+// 🧠 7. יצירת בחן אמריקאי אוטומטי
 router.post('/generate-quiz', AiController.generateQuiz);
 
-// 📈 יצירת תוכנית למידה אישית
+// 📈 8. יצירת תוכנית למידה אישית
 router.get('/learning-plan', AiController.generateLearningPlan);
 
 export default router;
