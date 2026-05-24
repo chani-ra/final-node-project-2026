@@ -4,19 +4,17 @@ import Course from '../models/course.model.js';
 import { EmailService } from '../service/emailService.js';
 
 export const QuizController = {
-  // ➕ יצירת בחן חדש לקורס אנגלית
+  // ➕ יצירת בחן חדש
   createQuiz: async (req, res) => {
     try {
       const { title, description, courseId, englishLevel, quizType, questions, duration, passingScore } = req.body;
       const teacherId = req.user.id;
 
-      // בדיקה שהמשתמש הוא מורה
       const teacher = await User.findById(teacherId);
       if (!teacher || teacher.role !== 'teacher') {
         return res.status(403).json({ message: 'רק מורים יכולים ליצור בחנים' });
       }
 
-      // בדיקה שהקורס קיים ושייך למורה
       const course = await Course.findById(courseId);
       if (!course) {
         return res.status(404).json({ message: 'קורס לא נמצא' });
@@ -25,7 +23,6 @@ export const QuizController = {
         return res.status(403).json({ message: 'אתה יכול ליצור בחנים רק לקורסים שלך' });
       }
 
-      // ולידציה על השאלות
       if (!questions || !Array.isArray(questions) || questions.length === 0) {
         return res.status(400).json({ message: 'חובה להוסיף לפחות שאלה אחת' });
       }
@@ -34,9 +31,6 @@ export const QuizController = {
         const q = questions[i];
         if (!q.question || !q.correctAnswer) {
           return res.status(400).json({ message: `שאלה ${i + 1}: טקסט השאלה ותשובה נכונה חובה` });
-        }
-        if (q.questionType === 'multiple-choice' && (!q.options || q.options.length < 2)) {
-          return res.status(400).json({ message: `שאלה ${i + 1}: שאלות ריבוי ברירה צריכות לפחות 2 אפשרויות` });
         }
       }
 
@@ -54,12 +48,11 @@ export const QuizController = {
 
       await newQuiz.save();
 
-      // הוספת הבחן לקורס
       course.quizzes.push(newQuiz._id);
       await course.save();
 
       res.status(201).json({
-        message: 'בחן אנגלית נוצר בהצלחה',
+        message: 'בחן נוצר בהצלחה',
         quiz: newQuiz
       });
 
@@ -69,18 +62,15 @@ export const QuizController = {
     }
   },
 
-  // 📖 קבלת בחנים של קורס ספציפי (תלמידים רשומים + מורים)
+  // 📖 קבלת בחנים של קורס
   getQuizzesByCourse: async (req, res) => {
     try {
       const { courseId } = req.params;
       const userId = req.user?.id;
 
       const course = await Course.findById(courseId);
-      if (!course) {
-        return res.status(404).json({ message: 'קורס לא נמצא' });
-      }
+      if (!course) return res.status(404).json({ message: 'קורס לא נמצא' });
 
-      // בדיקה אם המשתמש רשום לקורס (אלא אם הוא מורה)
       const user = userId ? await User.findById(userId) : null;
       const isEnrolled = user && (course.enrolledStudents.includes(userId) || course.instructorId.toString() === userId);
 
@@ -88,10 +78,7 @@ export const QuizController = {
         return res.status(403).json({ message: 'אתה צריך להיות רשום לקורס כדי לראות את הבחנים' });
       }
 
-      const quizzes = await Quiz.find({
-        courseId,
-        isActive: true
-      }).sort({ createdAt: -1 });
+      const quizzes = await Quiz.find({ courseId, isActive: true }).sort({ createdAt: -1 });
 
       res.status(200).json({
         quizzes,
@@ -103,11 +90,12 @@ export const QuizController = {
     }
   },
 
-  // 📝 הגשת בחן
+  // 📝 הגשת בחן (בצורה בטוחה)
   submitQuiz: async (req, res) => {
     try {
       const { quizId } = req.params;
-      const { answers, timeTaken } = req.body;
+      // מצפים ל: answers = [{ questionIndex: 0, answer: "cat" }, ...]
+      const { answers, timeTaken } = req.body; 
       const userId = req.user.id;
 
       const quiz = await Quiz.findById(quizId);
@@ -115,18 +103,20 @@ export const QuizController = {
         return res.status(404).json({ message: 'בחן לא נמצא או לא פעיל' });
       }
 
-      // בדיקה שהמשתמש רשום לקורס
       const course = await Course.findById(quiz.courseId);
       if (!course || !course.enrolledStudents.includes(userId)) {
         return res.status(403).json({ message: 'אתה צריך להיות רשום לקורס כדי להגיש בחן' });
       }
 
-      // בדיקת התשובות וחישוב הציון
       let totalScore = 0;
       const detailedAnswers = [];
 
+      // עוברים על השאלות של הבחן ומחפשים את התשובה שהמשתמש שלח
       quiz.questions.forEach((question, index) => {
-        const userAnswer = answers[index] || '';
+        // מציאת התשובה של המשתמש לפי האינדקס
+        const userAnswerObj = Array.isArray(answers) ? answers.find(a => a.questionIndex === index) : null;
+        const userAnswer = userAnswerObj ? userAnswerObj.answer : '';
+        
         const isCorrect = userAnswer.toLowerCase().trim() === question.correctAnswer.toLowerCase().trim();
         const points = isCorrect ? (question.points || 1) : 0;
 
@@ -143,7 +133,6 @@ export const QuizController = {
       const percentage = Math.round((totalScore / quiz.totalPoints) * 100);
       const passed = percentage >= quiz.passingScore;
 
-      // שמירת התוצאה במשתמש
       const user = await User.findById(userId);
       user.quizResults.push({
         quiz: quizId,
@@ -156,9 +145,8 @@ export const QuizController = {
         timeTaken
       });
 
-      // עדכון רמת האנגלית של המשתמש
+      // עדכון רמה קליל כפי שביקשת
       if (passed && quiz.englishLevel === user.englishLevel) {
-        // אם עבר בחן ברמתו הנוכחית, אפשר להעלות רמה
         const levels = ['beginner', 'intermediate', 'advanced'];
         const currentIndex = levels.indexOf(user.englishLevel);
         if (currentIndex < levels.length - 1) {
@@ -168,26 +156,15 @@ export const QuizController = {
 
       await user.save();
 
-      // שליחת מייל עם התוצאות (אם המשתמש רוצה)
       if (user.emailNotifications) {
         try {
-          await EmailService.sendQuizResult(
-            user.email,
-            user.username,
-            quiz.title,
-            percentage,
-            passed
-          );
-        } catch (emailError) {
-          console.error('Error sending quiz result email:', emailError);
-          // לא נפסיק את התהליך בגלל שגיאת מייל
-        }
+          await EmailService.sendQuizResult(user.email, user.username, quiz.title, percentage, passed);
+        } catch (error) {} // לא עוצרים במקרה של שגיאת מייל
       }
 
       res.status(200).json({
         message: passed ? 'מזל טוב! עברת את הבחן 🎉' : 'נסה שוב! אתה יכול להשתפר 💪',
         score: totalScore,
-        totalPoints: quiz.totalPoints,
         percentage,
         passed,
         answers: detailedAnswers,
@@ -204,14 +181,11 @@ export const QuizController = {
   getUserQuizResults: async (req, res) => {
     try {
       const userId = req.user.id;
-
       const user = await User.findById(userId)
         .populate('quizResults.quiz', 'title quizType englishLevel')
         .populate('quizResults.course', 'title');
 
-      if (!user) {
-        return res.status(404).json({ message: 'משתמש לא נמצא' });
-      }
+      if (!user) return res.status(404).json({ message: 'משתמש לא נמצא' });
 
       const quizResults = user.quizResults.sort((a, b) => b.completedAt - a.completedAt);
 
@@ -233,7 +207,6 @@ export const QuizController = {
   getTeacherQuizzes: async (req, res) => {
     try {
       const teacherId = req.user.id;
-
       const quizzes = await Quiz.find({ createdBy: teacherId })
         .populate('courseId', 'title category level')
         .sort({ createdAt: -1 });

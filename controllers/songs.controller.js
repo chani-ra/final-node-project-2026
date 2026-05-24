@@ -1,15 +1,12 @@
-// 
 import Song from '../models/songs.model.js';
-import fs from 'fs';
+import Course from '../models/course.model.js'; // למקרה שתרצה לעדכן את הקורס/שיעור
+import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
 
 export const SongsController = {
     // ➕ הוספת שיר
-    // ➕ הוספת שיר (עם זיהוי מורה)
     addSong: async (req, res) => {
-        console.log('Received file:', req.file);
-        console.log('Request body:', req.body);
-
         try {
             const { theme, duration, level, targetAge, composer, lyricist, lessonId } = req.body;
 
@@ -32,7 +29,7 @@ export const SongsController = {
                 lyricist: lyricist.trim(),
                 audioFileName: req.file.filename,
                 uploadedBy: req.user.id,
-                lesson: lessonId || null // ✅ קישור אופציונלי לשיעור
+                lesson: lessonId || null
             };
 
             const newSong = new Song(newSongData);
@@ -65,7 +62,6 @@ export const SongsController = {
         const { id } = req.params;
 
         try {
-            // רכוש את השיר הישן כדי למחוק את הקובץ הישן אם צריך
             const oldSong = await Song.findById(id);
             if (!oldSong) {
                 return res.status(404).json({ message: 'שיר לא נמצא' });
@@ -73,13 +69,12 @@ export const SongsController = {
 
             const updatedSongData = { ...req.body };
 
-            // אם יש קובץ חדש
+            // אם יש קובץ חדש, מוחקים את הישן בצורה אסינכרונית ובטוחה
             if (req.file) {
-                // מחוק את הקובץ הישן אם קיים
                 if (oldSong.audioFileName) {
-                    const oldFilePath = path.join('songsList', oldSong.audioFileName);
-                    if (fs.existsSync(oldFilePath)) {
-                        fs.unlinkSync(oldFilePath);
+                    const oldFilePath = path.join(process.cwd(), 'songsList', oldSong.audioFileName);
+                    if (existsSync(oldFilePath)) {
+                        await fs.unlink(oldFilePath);
                         console.log('Old file deleted:', oldFilePath);
                     }
                 }
@@ -110,11 +105,11 @@ export const SongsController = {
                 return res.status(404).json({ message: 'שיר לא נמצא' });
             }
 
-            // מחוק את הקובץ מהדיסק
+            // מחיקת קובץ אסינכרונית עם נתיב אבסולוטי
             if (deletedSong.audioFileName) {
-                const filePath = path.join('songsList', deletedSong.audioFileName);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
+                const filePath = path.join(process.cwd(), 'songsList', deletedSong.audioFileName);
+                if (existsSync(filePath)) {
+                    await fs.unlink(filePath);
                     console.log('File deleted:', filePath);
                 }
             }
