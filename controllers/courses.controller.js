@@ -1,9 +1,7 @@
-// controllers/course.controller.js
-import CourseService from '../service/courses.service.js';
+import CourseService from '../service/course.service.js';
 import UserService from '../service/users.service.js';
 
 export const CourseController = {
-  // ✅ קורסים מומלצים
   getRecommendedCourses: async (req, res) => {
     try {
       const user = await UserService.getUserById(req.user.id);
@@ -31,7 +29,6 @@ export const CourseController = {
     }
   },
 
-  // ✅ יצירת קורס
   createCourse: async (req, res) => {
     try {
       console.log('📥 req.body:', req.body);
@@ -42,276 +39,117 @@ export const CourseController = {
       if (!title || !category) {
         return res.status(400).json({
           success: false,
-          message: 'שם קורס וקטגוריה חובה',
+          message: 'שם קורס וקטגוריה הם שדות חובה'
         });
       }
 
-      const newCourse = await CourseService.createCourse(
-        {
-          title,
-          description: description || '',
-          category,
-          level: level || 'beginner',
-          isPublic: isPublic === true || isPublic === 'true',
-        },
-        req.user.id
-      );
+      const newCourse = await CourseService.createCourse({
+        title,
+        description,
+        category,
+        level,
+        isPublic: isPublic !== undefined ? isPublic : true
+      }, req.user.id);
 
       res.status(201).json({
         success: true,
-        message: 'קורס נוצר בהצלחה',
-        course: newCourse,
+        message: 'הקורס נוצר בהצלחה',
+        course: newCourse
       });
     } catch (error) {
-      console.error('❌ Error creating course:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // ✅ קורס לפי ID
-  getCourseById: async (req, res) => {
-    try {
-      const course = await CourseService.getCourseById(req.params.courseId);
-
-      res.status(200).json({
-        success: true,
-        course,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
+      console.error('❌ Error in createCourse:', error);
       res.status(500).json({
         success: false,
-        message: error.message,
+        message: error.message
       });
     }
   },
 
-  // ✅ קורסים של מורה
-  getInstructorCourses: async (req, res) => {
-    try {
-      const result = await CourseService.getInstructorCourses(
-        req.params.instructorId,
-        parseInt(req.query.page) || 1,
-        parseInt(req.query.limit) || 10
-      );
-
-      res.status(200).json({
-        success: true,
-        ...result,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // ✅ קורסים רשומים לתלמיד
   getEnrolledCourses: async (req, res) => {
     try {
-      const result = await CourseService.getEnrolledCourses(
-        req.user.id,
-        parseInt(req.query.page) || 1,
-        parseInt(req.query.limit) || 10
-      );
-
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      
+      const result = await CourseService.getEnrolledCourses(req.user.id, page, limit);
+      
       res.status(200).json({
         success: true,
-        ...result,
+        ...result
       });
     } catch (error) {
-      console.error('❌ Error:', error);
       res.status(500).json({
         success: false,
-        message: error.message,
+        message: error.message
       });
     }
   },
 
-  // ✅ עדכון קורס
+  enrollInCourse: async (req, res) => {
+    try {
+      const { courseId } = req.params;
+      const result = await CourseService.enrollStudentInCourse(courseId, req.user.id);
+      
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        course: result.course
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  },
+
+  getCourseById: async (req, res) => {
+    try {
+      const { courseId } = req.params;
+      const course = await CourseService.getCourseById(courseId);
+      res.status(200).json({
+        success: true,
+        course
+      });
+    } catch (error) {
+      res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+  },
+
   updateCourse: async (req, res) => {
     try {
-      const updatedCourse = await CourseService.updateCourse(
-        req.params.courseId,
-        req.body,
-        req.user.id
-      );
-
+      const { courseId } = req.params;
+      const updatedCourse = await CourseService.updateCourse(courseId, req.body, req.user.id);
       res.status(200).json({
         success: true,
-        message: 'קורס עודכן בהצלחה',
-        course: updatedCourse,
+        message: 'הקורס עודכן בהצלחה',
+        course: updatedCourse
       });
     } catch (error) {
-      console.error('❌ Error:', error);
       res.status(400).json({
         success: false,
-        message: error.message,
+        message: error.message
       });
     }
   },
 
-  // ✅ מחיקת קורס
   deleteCourse: async (req, res) => {
     try {
-      await CourseService.deleteCourse(req.params.courseId, req.user.id);
-
+      const { courseId } = req.params;
+      const result = await CourseService.deleteCourse(courseId, req.user.id);
       res.status(200).json({
         success: true,
-        message: 'קורס נמחק בהצלחה',
+        message: result.message
       });
     } catch (error) {
-      console.error('❌ Error:', error);
       res.status(400).json({
         success: false,
-        message: error.message,
+        message: error.message
       });
     }
-  },
-
-  // ✅ הרשמה לקורס
-  enrollStudent: async (req, res) => {
-    try {
-      const result = await CourseService.enrollStudentInCourse(
-        req.params.courseId,
-        req.user.id
-      );
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // ✅ הוספת שיעור
-  addLessonToCourse: async (req, res) => {
-    try {
-      const result = await CourseService.addLessonToCourse(
-        req.params.courseId,
-        req.body.lessonId,
-        req.user.id
-      );
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
-        course: result.course,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // ✅ הוספת שיר
-  addSongToCourse: async (req, res) => {
-    try {
-      const result = await CourseService.addSongToCourse(
-        req.params.courseId,
-        req.body.songId,
-        req.user.id
-      );
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
-        course: result.course,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // ✅ הוספת תרגיל
-  addExerciseToCourse: async (req, res) => {
-    try {
-      const result = await CourseService.addExerciseToCourse(
-        req.params.courseId,
-        req.body.exerciseId,
-        req.user.id
-      );
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
-        course: result.course,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // ✅ הוספת בחן
-  addQuizToCourse: async (req, res) => {
-    try {
-      const result = await CourseService.addQuizToCourse(
-        req.params.courseId,
-        req.body.quizId,
-        req.user.id
-      );
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
-        course: result.course,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // ✅ חיפוש
-  searchCourses: async (req, res) => {
-    try {
-      const result = await CourseService.searchCourses(
-        {
-          search: req.query.search,
-          category: req.query.category,
-          level: req.query.level,
-        },
-        parseInt(req.query.page) || 1,
-        parseInt(req.query.limit) || 10
-      );
-
-      res.status(200).json({
-        success: true,
-        ...result,
-      });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
+  }
 };
 
 export default CourseController;

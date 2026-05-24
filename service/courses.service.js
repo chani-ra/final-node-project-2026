@@ -1,19 +1,17 @@
-// service/course.service.js
 import Course from '../models/course.model.js';
-import User from '../models/users.model.js';
+import User from '../models/user.model.js';
 
 const hobbyCategoryMap = {
-  'אומנות ומוזיקה': ['conversation-skills', 'listening-comprehension'],
-  'פעילויות': ['vocabulary-everyday', 'conversation-skills'],
-  'צפיה בסרטים': ['listening-comprehension', 'vocabulary-everyday'],
-  'קריאת ספרים': ['reading-comprehension', 'academic-english'],
+  'art_music': ['conversation', 'listening'],
+  'sports': ['vocabulary', 'conversation'],
+  'movies': ['listening', 'vocabulary'],
+  'books': ['reading', 'grammar'],
 };
 
 const getPreferredLevels = (user) => {
   if (!user || typeof user.age !== 'number') {
     return ['beginner', 'intermediate', 'advanced'];
   }
-
   if (user.age <= 12) return ['beginner'];
   if (user.age <= 16) return ['beginner', 'intermediate'];
   return ['beginner', 'intermediate', 'advanced'];
@@ -55,19 +53,19 @@ const getCourseScore = (course, user, enrolledCourseIds) => {
     if (preferredLevels.includes(course.level)) score += 20;
   }
 
-  if (user.parentOrChild === 'ילד' && course.category === 'english-for-kids') {
+  if (user.parentOrChild === 'child' && course.category === 'general') {
     score += 20;
   }
 
-  if (user.parentOrChild === 'הורה' && ['conversation-skills', 'vocabulary-everyday'].includes(course.category)) {
+  if (user.parentOrChild === 'parent' && ['conversation', 'vocabulary'].includes(course.category)) {
     score += 10;
   }
 
-  if (user.gender === 'female' && ['conversation-skills', 'listening-comprehension', 'reading-comprehension'].includes(course.category)) {
+  if (user.gender === 'female' && ['conversation', 'listening', 'reading'].includes(course.category)) {
     score += 5;
   }
 
-  if (user.gender === 'male' && ['business-english', 'grammar-basics', 'vocabulary-everyday'].includes(course.category)) {
+  if (user.gender === 'male' && ['grammar', 'vocabulary'].includes(course.category)) {
     score += 5;
   }
 
@@ -84,11 +82,16 @@ const getCourseScore = (course, user, enrolledCourseIds) => {
 };
 
 export const CourseService = {
-  // ✅ קבלת קורסים מומלצים
+  // 🔥 אופטימיזציה: הפילטור נעשה ב-DB ולא בזיכרון של השרת
   getRecommendedCourses: async (user) => {
     try {
       const query = buildRecommendationQuery(user);
       const enrolledCourseIds = user.enrolledCourses?.map((id) => String(id)) || [];
+
+      // מונע מראש הבאה של קורסים שהמשתמש כבר רשום אליהם
+      if (enrolledCourseIds.length > 0) {
+        query._id = { $nin: enrolledCourseIds };
+      }
 
       const courses = await Course.find(query)
         .populate('instructorId', 'username email')
@@ -99,7 +102,6 @@ export const CourseService = {
         .sort({ createdAt: -1 });
 
       const recommended = courses
-        .filter((course) => !enrolledCourseIds.includes(String(course._id)))
         .map((course) => ({ course, score: getCourseScore(course, user, enrolledCourseIds) }))
         .sort((a, b) => b.score - a.score)
         .map((entry) => entry.course);
@@ -110,7 +112,6 @@ export const CourseService = {
     }
   },
 
-  // ✅ יצירת קורס
   createCourse: async (courseData, instructorId) => {
     try {
       if (!courseData.title || !courseData.category) {
@@ -131,7 +132,6 @@ export const CourseService = {
     }
   },
 
-  // ✅ קבלת קורס
   getCourseById: async (courseId) => {
     try {
       const course = await Course.findByIdAndUpdate(
@@ -156,7 +156,6 @@ export const CourseService = {
     }
   },
 
-  // ✅ קורסים של מורה
   getInstructorCourses: async (instructorId, page = 1, limit = 10) => {
     try {
       const skip = (page - 1) * limit;
@@ -182,7 +181,6 @@ export const CourseService = {
     }
   },
 
-  // ✅ עדכון קורס
   updateCourse: async (courseId, courseData, userId) => {
     try {
       const course = await Course.findById(courseId);
@@ -207,7 +205,6 @@ export const CourseService = {
     }
   },
 
-  // ✅ מחיקת קורס
   deleteCourse: async (courseId, userId) => {
     try {
       const course = await Course.findById(courseId);
@@ -228,34 +225,34 @@ export const CourseService = {
     }
   },
 
-  // ✅ הרשמה לקורס
+  // 🔥 אופטימיזציה: שימוש ב-$addToSet אטומי למניעת Race Conditions וכפילויות
   enrollStudentInCourse: async (courseId, studentId) => {
     try {
-      const course = await Course.findById(courseId);
-      const user = await User.findById(studentId);
+      // עדכון הקורס - הוספת הסטודנט רק אם הוא לא קיים שם
+      const updatedCourse = await Course.findOneAndUpdate(
+        { _id: courseId, enrolledStudents: { $ne: studentId } },
+        { $addToSet: { enrolledStudents: studentId } },
+        { new: true }
+      );
 
-      if (!course) {
-        throw new Error('קורס לא נמצא');
-      }
-
-      if (!user) {
-        throw new Error('משתמש לא נמצא');
-      }
-
-      if (course.enrolledStudents.includes(studentId)) {
+      if (!updatedCourse) {
+        // אם לא חזר קורס, או שהקורס לא קיים או שהסטודנט כבר רשום
+        const courseExists = await Course.exists({ _id: courseId });
+        if (!courseExists) throw new Error('קורס לא נמצא');
         throw new Error('אתה כבר רשום לקורס זה');
       }
 
-      if (user.enrolledCourses.includes(courseId)) {
-        throw new Error('הקורס כבר קיים ברשימת הקורסים שלך');
+      // עדכון המשתמש - הוספת הקורס
+      const updatedUser = await User.findOneAndUpdate(
+        { _id: studentId, enrolledCourses: { $ne: courseId } },
+        { $addToSet: { enrolledCourses: courseId } }
+      );
+
+      if (!updatedUser) {
+        throw new Error('משתמש לא נמצא או שכבר רשום לקורס');
       }
 
-      course.enrolledStudents.push(studentId);
-      user.enrolledCourses.push(courseId);
-
-      await Promise.all([course.save(), user.save()]);
-
-      return { message: 'נרשמת לקורס בהצלחה', course };
+      return { message: 'נרשמת לקורס בהצלחה', course: updatedCourse };
     } catch (error) {
       throw error;
     }
@@ -292,21 +289,20 @@ export const CourseService = {
     }
   },
 
-  // ✅ הוספת שיעור
+  // 🔥 אופטימיזציה: פונקציות הוספת תוכן קצרות ובטוחות יותר באמצעות findOneAndUpdate
   addLessonToCourse: async (courseId, lessonId, userId) => {
     try {
-      const course = await Course.findById(courseId);
+      const course = await Course.findOneAndUpdate(
+        { _id: courseId, instructorId: userId },
+        { $addToSet: { lessons: lessonId } },
+        { new: true }
+      );
 
-      if (!course) throw new Error('קורס לא נמצא');
-      if (course.instructorId.toString() !== userId) {
-        throw new Error('אתה לא מורשה לעדכן קורס זה');
+      if (!course) {
+        const courseExists = await Course.exists({ _id: courseId });
+        if (!courseExists) throw new Error('קורס לא נמצא');
+        throw new Error('אתה לא מורשה לעדכן קורס זה או שהשיעור כבר קיים');
       }
-      if (course.lessons.includes(lessonId)) {
-        throw new Error('שיעור זה כבר בקורס');
-      }
-
-      course.lessons.push(lessonId);
-      await course.save();
 
       return { message: 'שיעור התווסף בהצלחה', course };
     } catch (error) {
@@ -314,21 +310,19 @@ export const CourseService = {
     }
   },
 
-  // ✅ הוספת שיר
   addSongToCourse: async (courseId, songId, userId) => {
     try {
-      const course = await Course.findById(courseId);
+      const course = await Course.findOneAndUpdate(
+        { _id: courseId, instructorId: userId },
+        { $addToSet: { songs: songId } },
+        { new: true }
+      );
 
-      if (!course) throw new Error('קורס לא נמצא');
-      if (course.instructorId.toString() !== userId) {
-        throw new Error('אתה לא מורשה לעדכן קורס זה');
+      if (!course) {
+        const courseExists = await Course.exists({ _id: courseId });
+        if (!courseExists) throw new Error('קורס לא נמצא');
+        throw new Error('אתה לא מורשה לעדכן קורס זה או שהשיר כבר קיים');
       }
-      if (course.songs.includes(songId)) {
-        throw new Error('שיר זה כבר בקורס');
-      }
-
-      course.songs.push(songId);
-      await course.save();
 
       return { message: 'שיר התווסף בהצלחה', course };
     } catch (error) {
@@ -336,21 +330,19 @@ export const CourseService = {
     }
   },
 
-  // ✅ הוספת תרגיל (בהמשך תוסיף לוגיקה מלאה)
   addExerciseToCourse: async (courseId, exerciseId, userId) => {
     try {
-      const course = await Course.findById(courseId);
+      const course = await Course.findOneAndUpdate(
+        { _id: courseId, instructorId: userId },
+        { $addToSet: { exercises: exerciseId } },
+        { new: true }
+      );
 
-      if (!course) throw new Error('קורס לא נמצא');
-      if (course.instructorId.toString() !== userId) {
-        throw new Error('אתה לא מורשה לעדכן קורס זה');
+      if (!course) {
+        const courseExists = await Course.exists({ _id: courseId });
+        if (!courseExists) throw new Error('קורס לא נמצא');
+        throw new Error('אתה לא מורשה לעדכן קורס זה או שהתרגיל כבר קיים');
       }
-      if (course.exercises.includes(exerciseId)) {
-        throw new Error('תרגיל זה כבר בקורס');
-      }
-
-      course.exercises.push(exerciseId);
-      await course.save();
 
       return { message: 'תרגיל התווסף בהצלחה', course };
     } catch (error) {
@@ -358,21 +350,19 @@ export const CourseService = {
     }
   },
 
-  // ✅ הוספת בחן (בהמשך תוסיף לוגיקה מלאה)
   addQuizToCourse: async (courseId, quizId, userId) => {
     try {
-      const course = await Course.findById(courseId);
+      const course = await Course.findOneAndUpdate(
+        { _id: courseId, instructorId: userId },
+        { $addToSet: { quizzes: quizId } },
+        { new: true }
+      );
 
-      if (!course) throw new Error('קורס לא נמצא');
-      if (course.instructorId.toString() !== userId) {
-        throw new Error('אתה לא מורשה לעדכן קורס זה');
+      if (!course) {
+        const courseExists = await Course.exists({ _id: courseId });
+        if (!courseExists) throw new Error('קורס לא נמצא');
+        throw new Error('אתה לא מורשה לעדכן קורס זה או שהבוחן כבר קיים');
       }
-      if (course.quizzes.includes(quizId)) {
-        throw new Error('בחן זה כבר בקורס');
-      }
-
-      course.quizzes.push(quizId);
-      await course.save();
 
       return { message: 'בחן התווסף בהצלחה', course };
     } catch (error) {
@@ -380,11 +370,9 @@ export const CourseService = {
     }
   },
 
-  // ✅ חיפוש קורסים
   searchCourses: async (query, page = 1, limit = 10) => {
     try {
       const skip = (page - 1) * limit;
-
       const filter = { isPublic: true };
 
       if (query.search) {

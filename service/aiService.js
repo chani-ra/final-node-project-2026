@@ -205,8 +205,8 @@ class AIService {
     }
   }
 
-  // AI-generated personalized learning plan based on user profile and recommended courses
-  async generateLearningPlan(user, recommendedCourses = []) {
+  // AI-generated personalized course structure (Returns structured JSON)
+  async generatePersonalizedCourse(user) {
     try {
       assertOpenAI();
 
@@ -214,37 +214,49 @@ class AIService {
         ? user.favoriteHobbies.join(', ')
         : 'general English learning';
 
-      const recommendedList = recommendedCourses.map((course, index) => {
-        return `${index + 1}. ${course.title} (${course.category}, ${course.level})`;
-      }).join('\n') || 'No recommended courses available yet.';
+      const prompt = `
+        You are an expert English curriculum designer. 
+        Create a personalized English course outline for a student based on their profile:
+        - Age: ${user.age}
+        - Hobbies: ${interests}
+        - Level: ${user.englishLevel || 'beginner'}
+
+        Return ONLY a valid JSON object (without any markdown code blocks, backticks, or extra commentary) with exactly this structure:
+        {
+          "title": "A personalized course title based on hobbies",
+          "description": "A descriptive overview of the course goals",
+          "category": "Choose exactly ONE from: grammar, vocabulary, conversation, reading, listening, general",
+          "level": "Choose exactly ONE from: beginner, intermediate, advanced"
+        }
+      `;
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4",
         messages: [
-          {
-            role: "system",
-            content: "You are an expert English learning mentor. Create a friendly, clear and practical learning plan for a student based on their profile, hobbies, age and current English level."
-          },
-          {
-            role: "user",
-            content: `Student profile:\n- Age: ${user.age || 'unknown'}\n- Gender: ${user.gender || 'unknown'}\n- Level: ${user.englishLevel || 'beginner'}\n- Hobbies: ${interests}\n- Role: ${user.parentOrChild || 'student'}\n- Favorite learning style: music, reading, conversation, or games if available.\n\nRecommended courses:\n${recommendedList}\n\nPlease build a 5-step weekly learning plan that includes course study, song practice, conversation practice, and exam preparation. Mention the best next course and one AI-powered study tip.`
-          }
+          { role: "system", content: "You output clean JSON based on requests." },
+          { role: "user", content: prompt }
         ],
-        max_tokens: 500,
+        max_tokens: 400,
         temperature: 0.6,
       });
 
+      const courseData = JSON.parse(completion.choices[0].message.content.trim());
+
       return {
-        plan: completion.choices[0].message.content,
-        recommendedCourses,
-        success: true
+        success: true,
+        course: courseData
       };
     } catch (error) {
-      console.error('Learning plan error:', error);
+      console.error('Personalized course generation error:', error);
       return {
-        plan: "Sorry, I couldn't generate a personalized learning plan right now. Please try again later.",
         success: false,
-        error: 'AI service temporarily unavailable'
+        error: 'AI service temporarily unavailable',
+        course: {
+          title: 'General English Starter',
+          description: 'A customized initial course to build fundamental English skills.',
+          category: 'general',
+          level: user.englishLevel || 'beginner'
+        }
       };
     }
   }

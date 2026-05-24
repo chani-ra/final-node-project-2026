@@ -1,11 +1,11 @@
 import { userValidationSchema } from '../validation/user.validation.js';
 import UserService from '../service/users.service.js';
 import TokenService from '../service/token.service.js';
-import { EmailService } from '../service/emailService.js';
+import AIService from '../service/ai.service.js';
 import Course from '../models/course.model.js';
 
 export const AuthController = {
-  // יצירת admin ראשוני (זמני לפיתוח)
+    // יצירת admin ראשוני (זמני לפיתוח)
     createFirstAdmin: async (req, res) => {
         try {
             const admin = await UserService.createFirstAdmin(req.body);
@@ -30,42 +30,44 @@ export const AuthController = {
     },
 
     register: async (req, res) => {
-        // Joi validation - מקצועי ומלא
         const { error } = userValidationSchema.validate(req.body);
         if (error) {
             return res.status(400).json({ message: error.details[0].message });
         }
-          try {
+        try {
             const newUser = await UserService.register(req.body);
             const tokens = TokenService.generateTokenPair(newUser._id, newUser.role);
 
-            // שליחת מייל ברוכים הבאים (אם ההגדרות תקינות)
+            // 🤖 יצירת קורס מבוסס AI אוטומטית לפי נתוני המשתמש!
             try {
-              await EmailService.sendWelcomeEmail(newUser.email, newUser.username);
-            } catch (emailError) {
-              console.error('Error sending welcome email:', emailError);
-              // לא נפסיק את הרישום בגלל שגיאת מייל
-            }
+                const aiResult = await AIService.generatePersonalizedCourse(newUser);
+                
+                const newCourse = new Course({
+                    title: aiResult.course.title,
+                    description: aiResult.course.description,
+                    category: aiResult.course.category,
+                    level: aiResult.course.level,
+                    instructorId: newUser._id, // המשתמש עצמו או ישות AI
+                    isPublic: false,           // קורס פרטי אישי שלו
+                    enrolledStudents: [newUser._id]
+                });
 
-            // הרשמה אוטומטית לקורס פתיחה אם קיים
-            try {
-              const starterCourse = await Course.findOne({ title: 'English for Young Learners', isPublic: true });
-              if (starterCourse) {
-                if (!starterCourse.enrolledStudents.includes(newUser._id)) {
-                  starterCourse.enrolledStudents.push(newUser._id);
-                  await starterCourse.save();
-                }
-                if (!newUser.enrolledCourses.includes(starterCourse._id)) {
-                  newUser.enrolledCourses.push(starterCourse._id);
-                  await newUser.save();
-                }
-              }
-            } catch (seedEnrollError) {
-              console.error('Failed to auto-enroll new user in starter course:', seedEnrollError);
+                await newCourse.save();
+
+                // דוחפים את הקורס למערך הקורסים הרשומים של המשתמש
+                newUser.enrolledCourses.push(newCourse._id);
+                newUser.courseProgress.push({
+                    course: newCourse._id,
+                    progress: 0
+                });
+
+                await newUser.save();
+            } catch (aiError) {
+                console.error('Failed to automatically create AI course:', aiError);
             }
             
             res.status(201).json({ 
-                message: "User registered successfully", 
+                message: "User registered successfully and personalized course assigned", 
                 token: tokens.accessToken,
                 refreshToken: tokens.refreshToken,
                 user: { 
@@ -79,9 +81,9 @@ export const AuthController = {
             res.status(400).json({ message: error.message });
         }
     },    
+
     login: async (req, res) => {
         try {
-            // UserService רק מאמת - לא יוצר טוקן
             const user = await UserService.login(req.body.email, req.body.password);
             const tokens = TokenService.generateTokenPair(user.id, user.role);
             
@@ -104,20 +106,17 @@ export const AuthController = {
                 return res.status(400).json({ message: "Refresh token is required" });
             }
 
-            // Verify refresh token
             const decoded = TokenService.verifyToken(refreshToken, 'refresh');
             
             if (decoded.type !== 'refresh') {
                 return res.status(401).json({ message: "Invalid token type" });
             }
 
-            // Get user data to include role in new token
             const user = await UserService.getUserById(decoded.userId);
             if (!user) {
                 return res.status(401).json({ message: "User not found" });
             }
 
-            // Generate new token pair
             const newTokens = TokenService.generateTokenPair(user._id, user.role);
 
             res.status(200).json({

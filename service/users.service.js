@@ -1,4 +1,4 @@
-import User from '../models/users.model.js';
+import User from '../models/user.model.js';
 import bcrypt from 'bcryptjs';
 
 const createUser = async (userData) => {
@@ -12,10 +12,7 @@ const createUser = async (userData) => {
     return await user.save();
 }
 
-
 const UserService = {
-
-    // Helper function לסינון נתוני משתמש
     filterUserData: (user) => ({
         id: user._id,
         email: user.email,
@@ -25,7 +22,6 @@ const UserService = {
     }),
 
     register: async (userData) => {
-
         userData.role = 'user';
         return await createUser(userData);
     },
@@ -47,20 +43,17 @@ const UserService = {
     },
 
     login: async (email, password) => {
-
-          console.log(`Trying to login user with email: ${email}`);// Debug log
+        console.log(`Trying to login user with email: ${email}`);
         const user = await User.findOne({ email });
 
         if (!user) {
-                    console.log("User not found");// Debug log
-
+            console.log("User not found");
             throw new Error("Invalid credentials");
         }
         
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
-                    console.log("Invalid password");// Debug log
-
+            console.log("Invalid password");
             throw new Error("Invalid credentials");
         }
         
@@ -76,7 +69,6 @@ const UserService = {
         return await User.findById(id);
     },
 
-    // פונקציה ספציפית לפרופיל - מחזירה מידע מסונן
     getUserProfile: async (id) => {
         const user = await User.findById(id).select('-password -__v');
         if (!user) {
@@ -90,20 +82,17 @@ const UserService = {
             role: user.role,
             phone: user.phone,
             age: user.age,
-                        gender: user.gender,
+            gender: user.gender,
             createdAt: user.createdAt
         };
     },
 
-    // פונקציה כללית לעדכון משתמש (למנהלים)
     updateUser: async (id, userData) => {
         const updatedUser = await User.findByIdAndUpdate(id, userData, { new: true }).select('-password -__v');
         return updatedUser;
     },
 
-    // פונקציה ספציפית לעדכון פרופיל אישי (למשתמש עצמו)
     updateOwnProfile: async (id, profileData) => {
-        // רק שדות מותרים לעדכון עצמי
         const allowedFields = ['username', 'phone', 'age'];
         const filteredData = {};
         
@@ -118,14 +107,13 @@ const UserService = {
     },
 
     getAllUsers: async () => {
-        return await User.find({}).select('-password'); // ללא סיסמה
+        return await User.find({}).select('-password');
     },
 
     deleteUser: async (id) => {
         return await User.findByIdAndDelete(id);
     },
 
-    // פונקציה זמנית ליצירת admin ראשוני (רק לפיתוח!)
     enrollUserInCourse: async (userId, courseId) => {
         const user = await User.findById(userId);
         if (!user) {
@@ -142,7 +130,6 @@ const UserService = {
     },
 
     createFirstAdmin: async (userData) => {
-        // בדיקה שאין כבר admin
         const existingAdmin = await User.findOne({ role: 'admin' });
         if (existingAdmin) {
             throw new Error("Admin already exists");
