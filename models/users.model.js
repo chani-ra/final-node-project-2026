@@ -1,41 +1,35 @@
 import { Schema, model } from "mongoose";
 
 const userSchema = new Schema({
-    username: String,
-    email: { type: String, unique: true },
-    password: String,
-    phone: String,
-    address: {
-     
-            country: String,
-            city: String,
-            street: String,
-      
-    },
-    age: {
-        type: Number,
-        required: true,
-        min: 0,
-        max: 120,
-    },
+    username: { type: String, required: true, trim: true },
+    email: { type: String, unique: true, required: true, lowercase: true },
+    password: { type: String, required: true },
+    phone: { type: String, required: true },
+    age: { type: Number, required: true, min: 4, max: 120 },
+    
+    // שינוי לאנגלית בשביל ה-AI והסטנדרט המקצועי
     parentOrChild: {
         type: String,
-        enum: ['הורה', 'ילד'],
+        enum: ['parent', 'child'], 
         required: true,
     },
+    // רשימת תחביבים באנגלית (ה-Frontend ישלח את זה ככה)
     favoriteHobbies: {
         type: [String],
         required: true,
-        enum: ['אומנות ומוזיקה', 'פעילויות', 'צפיה בסרטים', 'קריאת ספרים']
+        enum: ['art_music', 'sports', 'movies', 'books'] 
+    },
+    // מה המשתמש רוצה לשפר
+    expectations: {
+        type: [String],
+        enum: ['grammar', 'fluent_speaking', 'confidence', 'vocabulary'],
+        default: []
     },
     gender: { type: String, enum: ['male', 'female'], required: true },
     role: { type: String, enum: ['admin', 'teacher', 'user'], default: 'user' },
-    enrolledCourses: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: 'Course',
-      },
-    ],
+    
+    enrolledCourses: [{ type: Schema.Types.ObjectId, ref: 'Course' }],
+    
     courseProgress: [
       {
         course: { type: Schema.Types.ObjectId, ref: 'Course' },
@@ -44,9 +38,7 @@ const userSchema = new Schema({
         completedSongs: [{ type: Schema.Types.ObjectId, ref: 'song' }],
         currentLesson: { type: Schema.Types.ObjectId, ref: 'Lesson' },
         progress: { type: Number, min: 0, max: 100, default: 0 },
-        startedAt: { type: Date, default: Date.now },
         lastAccessedAt: { type: Date, default: Date.now },
-        updatedAt: { type: Date, default: Date.now },
       },
     ],
     quizResults: [
@@ -54,17 +46,7 @@ const userSchema = new Schema({
         quiz: { type: Schema.Types.ObjectId, ref: 'Quiz' },
         course: { type: Schema.Types.ObjectId, ref: 'Course' },
         score: { type: Number, required: true },
-        totalPoints: { type: Number, required: true },
-        percentage: { type: Number, required: true },
         passed: { type: Boolean, required: true },
-        answers: [{
-          questionIndex: { type: Number, required: true },
-          userAnswer: { type: String, required: true },
-          correctAnswer: { type: String, required: true },
-          isCorrect: { type: Boolean, required: true },
-          points: { type: Number, default: 0 }
-        }],
-        timeTaken: { type: Number }, // בדקות
         completedAt: { type: Date, default: Date.now }
       }
     ],
@@ -72,24 +54,7 @@ const userSchema = new Schema({
       type: String,
       enum: ['beginner', 'intermediate', 'advanced'],
       default: 'beginner'
-    },
-    totalStudyTime: { type: Number, default: 0 }, // בדקות
-    streakDays: { type: Number, default: 0 }, // ימים רצופים של לימוד
-    lastStudyDate: { type: Date },
-    achievements: [{
-      type: { type: String, required: true }, // 'course_completed', 'quiz_passed', 'streak_7_days' וכו'
-      title: { type: String, required: true },
-      description: { type: String, required: true },
-      earnedAt: { type: Date, default: Date.now },
-      icon: { type: String, default: '🏆' }
-    }],
-    emailNotifications: {
-      type: Boolean,
-      default: true
-    },
-    songs: [{ type: Schema.Types.ObjectId, ref: 'song' }]
-}, {
-    timestamps: true
-});
+    }
+}, { timestamps: true });
 
 export default model('User', userSchema);
