@@ -14,6 +14,16 @@ const lessonSchema = new Schema(
       trim: true,
       maxlength: [200, 'כותרת לא יכולה להיות יותר מ-200 תווים'],
     },
+    topic: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+
+    icon: {
+      type: String,
+      default: '🧠',
+    },
 
     description: {
       type: String,
@@ -61,12 +71,11 @@ const lessonSchema = new Schema(
       default: [],
     },
 
-    language: {
+    lessonLanguage: {
       type: String,
       enum: ['he', 'en'],
       default: 'he',
     },
-
     views: {
       type: Number,
       default: 0,
@@ -87,8 +96,13 @@ const lessonSchema = new Schema(
 );
 
 // Indexes לביצועים
+// Indexes לביצועים
+// תמחקי את ה-Indexes הישנים ותחליפי בזה:
+lessonSchema.index(
+  { title: 'text', description: 'text' },
+  { language_override: 'dummyLanguage' } 
+);
 lessonSchema.index({ instructorId: 1, createdAt: -1 });
-lessonSchema.index({ title: 'text', description: 'text' });
 lessonSchema.index({ isPublic: 1, createdAt: -1 });
 
 export default model('Lesson', lessonSchema);

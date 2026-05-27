@@ -49,8 +49,7 @@ app.get('/', (req, res) => {
 });
 
 // 5️⃣ Routes
-app.use('/users', userRoutes);
-app.use('/admin', adminRoutes);
+app.use('/users', userRoutes);app.use('/admin', adminRoutes);
 app.use('/courses', courseRoutes);
 app.use('/songs', songsRoutes);
 app.use('/lessons', lessonRoutes);

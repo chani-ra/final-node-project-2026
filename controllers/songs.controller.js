@@ -45,7 +45,7 @@ export const SongsController = {
             res.status(400).json({ message: error.message });
         }
     },
-    
+
     // 📖 קבלת כל השירים
     getAllSongs: async (req, res) => {
         try {
@@ -53,6 +53,17 @@ export const SongsController = {
             res.status(200).json(songs);
         } catch (error) {
             console.error('Error fetching songs:', error);
+            res.status(500).json({ message: error.message });
+        }
+    },
+    // 🎤 קבלת שירים לפי מזהה המורה (ל"ספרייה שלי")
+
+    getSongsByInstructor: async (req, res) => {
+        try {
+            const { instructorId } = req.params;
+            const songs = await Song.find({ uploadedBy: instructorId });
+            res.status(200).json({ songs });
+        } catch (error) {
             res.status(500).json({ message: error.message });
         }
     },

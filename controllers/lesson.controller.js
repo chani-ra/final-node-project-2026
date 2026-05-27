@@ -4,16 +4,17 @@ import fs from 'fs';
 import path from 'path';
 
 export const LessonController = {
-  // ➕ העלאת שיעור חדש
+ // ➕ העלאת שיעור חדש
   uploadLesson: async (req, res) => {
     console.log('📥 [uploadLesson] Received file:', req.file);
     console.log('📥 [uploadLesson] Request body:', req.body);
 
     try {
-      const { title, description, isPublic, language } = req.body;
+      // ✅ שינינו כאן ל-lessonLanguage
+      const { title, description, isPublic, lessonLanguage, topic, icon } = req.body;
 
       if (!title) {
-        if (req.file) fs.unlinkSync(req.file.path); // מחיקת קובץ אם חסר שדה חובה
+        if (req.file) fs.unlinkSync(req.file.path); 
         return res.status(400).json({ message: 'כותרת שיעור היא חובה' });
       }
 
@@ -24,11 +25,13 @@ export const LessonController = {
       const newLessonData = {
         instructorId: req.user.id,
         title: title.trim(),
+        topic: topic?.trim() || '',   
+        icon: icon || '🧠',           
         description: description?.trim() || '',
         videoFileName: req.file.filename,
         videoFileSize: req.file.size,
         isPublic: isPublic === 'true' || isPublic === true,
-        language: language || 'he',
+        lessonLanguage: lessonLanguage || 'he', // ✅ שינינו כאן ל-lessonLanguage
         uploadStatus: 'completed',
         videoUrl: `/uploads/videos/${req.file.filename}`
       };
@@ -50,7 +53,7 @@ export const LessonController = {
       res.status(400).json({ message: error.message });
     }
   },
-
+  
   // 📖 קבלת כל השיעורים של מורה
   getInstructorLessons: async (req, res) => {
     const { instructorId } = req.params;
