@@ -12,9 +12,18 @@ const categoryByExpectation = {
   confidence: "conversation",
 };
 
+const normalizeLevel = (level) => {
+  if (level === "מתחילים") return "beginner";
+  if (level === "בינוני") return "intermediate";
+  if (level === "מתקדמים") return "advanced";
+  return level;
+};
+
 const getMainCategoryFromUser = (user) => {
   const firstExpectation = user.expectations?.[0];
+
   if (!firstExpectation) return "general";
+
   return categoryByExpectation[firstExpectation] || "general";
 };
 
@@ -29,15 +38,18 @@ const ageMatches = (item, userAge) => {
 
 const countMatches = (sourceList = [], targetList = []) => {
   if (!Array.isArray(sourceList) || !Array.isArray(targetList)) return 0;
+
   return sourceList.filter((item) => targetList.includes(item)).length;
 };
 
 const scoreItemForUser = (item, user) => {
   let score = 0;
 
-  const itemLevel = item.level === "מתחילים" ? "beginner" : item.level;
+  const itemLevel = normalizeLevel(item.level || item.englishLevel);
+  const userLevel = normalizeLevel(user.englishLevel);
 
-  if (itemLevel === user.englishLevel) score += 40;
+  if (itemLevel === userLevel) score += 40;
+
   if (ageMatches(item, user.age)) score += 20;
 
   const hobbyMatches = countMatches(item.hobbies, user.favoriteHobbies);
@@ -110,6 +122,36 @@ const addUniqueItems = (currentIds = [], newItems = []) => {
   return [...currentIds, ...newIds];
 };
 
+const createCourseTitle = (user, preferences = {}) => {
+  const levelLabels = {
+    beginner: "מתחילים",
+    intermediate: "בינוני",
+    advanced: "מתקדמים",
+  };
+
+  const level = levelLabels[preferences.englishLevel || user.englishLevel] || "מותאם";
+
+  return `מסלול אישי נוסף - ${level}`;
+};
+
+const mergeUserWithPreferences = (user, preferences = {}) => {
+  return {
+    ...user.toObject?.() || user,
+    _id: user._id,
+    username: user.username,
+    age: user.age,
+    englishLevel: preferences.englishLevel || user.englishLevel || "beginner",
+    favoriteHobbies:
+      preferences.favoriteHobbies && preferences.favoriteHobbies.length > 0
+        ? preferences.favoriteHobbies
+        : user.favoriteHobbies || [],
+    expectations:
+      preferences.expectations && preferences.expectations.length > 0
+        ? preferences.expectations
+        : user.expectations || [],
+  };
+};
+
 const PersonalizedCourseService = {
   findMatchingContent: async (user) => {
     const baseQuery = buildBaseQuery(user);
@@ -129,22 +171,31 @@ const PersonalizedCourseService = {
     };
   },
 
-  createPersonalizedCourseForUser: async (user) => {
-    const selected = await PersonalizedCourseService.findMatchingContent(user);
+  createPersonalizedCourseForUser: async (user, preferences = {}) => {
+    const userForMatching = mergeUserWithPreferences(user, preferences);
 
-    const mainCategory = getMainCategoryFromUser(user);
+    const selected = await PersonalizedCourseService.findMatchingContent(
+      userForMatching
+    );
+
+    const mainCategory = getMainCategoryFromUser(userForMatching);
     const aiReason = createReason(selected, false);
 
     const course = new Course({
-      title: `המסלול האישי של ${user.username}`,
+      title:
+        preferences.customTitle?.trim() ||
+        (preferences.isAdditionalCourse
+          ? createCourseTitle(user, preferences)
+          : `המסלול האישי של ${user.username}`),
+
       description:
-        "קורס אישי שנבנה לפי הרמה, הגיל, ההעדפות והמטרות שבחרת בהרשמה.",
+        "קורס אישי שנבנה לפי הרמה, הגיל, ההעדפות והמטרות שבחרת.",
       instructorId: user._id,
       createdFor: user._id,
       createdByAI: true,
       aiReason,
       category: mainCategory,
-      level: user.englishLevel || "beginner",
+      level: userForMatching.englishLevel || "beginner",
 
       lessons: selected.lessons.map((lesson) => lesson._id),
       songs: selected.songs.map((song) => song._id),
@@ -176,6 +227,22 @@ const PersonalizedCourseService = {
       selected,
       aiReason,
     };
+  },
+
+  createAdditionalPersonalizedCourse: async (userId, preferences) => {
+    const user = await User.findById(userId);
+
+    if (!user) {
+      throw new Error("משתמש לא נמצא");
+    }
+
+    return await PersonalizedCourseService.createPersonalizedCourseForUser(
+      user,
+      {
+        ...preferences,
+        isAdditionalCourse: true,
+      }
+    );
   },
 
   refreshPersonalizedCourse: async (courseId, userId) => {

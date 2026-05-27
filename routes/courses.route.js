@@ -27,6 +27,11 @@ router.get('/recommended', authenticateToken, CourseController.getRecommendedCou
 // ==========================================
 router.post('/create', authenticateToken, requireTeacher, CourseController.createCourse);
 
+router.post(
+  '/create-personalized',
+  authenticateToken,
+  CourseController.createPersonalizedCourse
+);
 // ==========================================
 // 3️⃣ נתיבים דינמיים בסוף (עם נקודתיים : )
 // ==========================================
