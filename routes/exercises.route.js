@@ -1,25 +1,55 @@
-import { Router } from 'express';
-import ExerciseController from '../controllers/exercise.controller.js';
-import { authenticateToken, requireTeacher } from '../middlewares/auth.middleware.js';
+import { Router } from "express";
+import ExerciseController from "../controllers/exercise.controller.js";
+import {
+  authenticateToken,
+  requireTeacher,
+} from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-// ➕ יצירת תרגיל (רק מורים)
-router.post('/create', authenticateToken, requireTeacher, ExerciseController.createExercise);
+// יצירת תרגיל ידני או תרגיל שנוצר בעזרת AI
+router.post(
+  "/create",
+  authenticateToken,
+  requireTeacher,
+  ExerciseController.createExercise
+);
 
-// 📖 קבלת כל התרגילים
-router.get('/', ExerciseController.getAllExercises);
+// קבלת כל התרגילים הציבוריים
+router.get("/", ExerciseController.getAllExercises);
 
-// 📖 קבלת תרגיל ספציפי
-router.get('/:exerciseId', ExerciseController.getExerciseById);
+// קבלת תרגילים של מורה
+router.get(
+  "/teacher/:teacherId",
+  authenticateToken,
+  requireTeacher,
+  ExerciseController.getExercisesByTeacher
+);
 
-// ✏️ עדכון תרגיל (רק מורים)
-router.put('/:exerciseId', authenticateToken, requireTeacher, ExerciseController.updateExercise);
+// קבלת תרגיל לפי מזהה
+router.get("/:exerciseId", authenticateToken, ExerciseController.getExerciseById);
 
-// 🗑️ מחיקת תרגיל (רק מורים)
-router.delete('/:exerciseId', authenticateToken, requireTeacher, ExerciseController.deleteExercise);
+// עדכון תרגיל
+router.put(
+  "/:exerciseId",
+  authenticateToken,
+  requireTeacher,
+  ExerciseController.updateExercise
+);
 
-// ✅ סימון תרגיל כהושלם (תלמידים)
-router.post('/:exerciseId/complete', authenticateToken, ExerciseController.markCompleted);
+// מחיקת תרגיל
+router.delete(
+  "/:exerciseId",
+  authenticateToken,
+  requireTeacher,
+  ExerciseController.deleteExercise
+);
+
+// סימון תרגיל כהושלם
+router.post(
+  "/:exerciseId/complete",
+  authenticateToken,
+  ExerciseController.markCompleted
+);
 
 export default router;

@@ -20,7 +20,7 @@ const exerciseSchema = new Schema(
       type: String,
       default: "",
       trim: true,
-      maxlength: [3000, "הוראות לא יכולות להיות יותר מ-3000 תווים"],
+      maxlength: [5000, "הוראות לא יכולות להיות יותר מ-5000 תווים"],
     },
 
     type: {
@@ -29,26 +29,9 @@ const exerciseSchema = new Schema(
       default: "practice",
     },
 
-    materials: [{ type: String }],
-
-    createdBy: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-      index: true,
-    },
-
-    // שדות התאמה ל-AI
     category: {
       type: String,
-      enum: [
-        "grammar",
-        "vocabulary",
-        "conversation",
-        "reading",
-        "listening",
-        "general",
-      ],
+      enum: ["grammar", "vocabulary", "conversation", "reading", "listening", "general"],
       default: "general",
       index: true,
     },
@@ -64,10 +47,14 @@ const exerciseSchema = new Schema(
       min: {
         type: Number,
         default: 6,
+        min: 4,
+        max: 120,
       },
       max: {
         type: Number,
         default: 120,
+        min: 4,
+        max: 120,
       },
     },
 
@@ -85,16 +72,45 @@ const exerciseSchema = new Schema(
       index: true,
     },
 
+    materials: {
+      type: [String],
+      default: [],
+    },
+
     isPublic: {
       type: Boolean,
-      default: true,
+      default: false,
       index: true,
+    },
+
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    createdByAI: {
+      type: Boolean,
+      default: false,
+    },
+
+    aiPrompt: {
+      type: String,
+      default: "",
+      trim: true,
     },
   },
   { timestamps: true }
 );
 
-exerciseSchema.index({ category: 1, level: 1, isPublic: 1 });
+exerciseSchema.index({
+  title: "text",
+  description: "text",
+  instructions: "text",
+});
+
+exerciseSchema.index({ isPublic: 1, level: 1, category: 1 });
 exerciseSchema.index({ createdBy: 1, createdAt: -1 });
 
 export default model("Exercise", exerciseSchema);
