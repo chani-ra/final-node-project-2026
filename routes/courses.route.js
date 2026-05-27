@@ -11,6 +11,11 @@ router.use((req, res, next) => {
     next();
 });
 
+router.post(
+  '/:courseId/refresh-personalized',
+  authenticateToken,
+  CourseController.refreshPersonalizedCourse
+);
 // ==========================================
 // 1️⃣ נתיבים סטטיים קודם (חובה!)
 // ==========================================

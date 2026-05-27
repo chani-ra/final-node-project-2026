@@ -1,11 +1,9 @@
-import { userValidationSchema } from '../validation/user.validation.js';
-import UserService from '../service/users.service.js';
-import TokenService from '../service/token.service.js';
-import AIService from '../service/aiService.js';
-import Course from '../models/course.model.js';
+import { userValidationSchema } from "../validation/user.validation.js";
+import UserService from "../service/users.service.js";
+import TokenService from "../service/token.service.js";
+import PersonalizedCourseService from "../service/personalizedCourse.service.js";
 
 export const AuthController = {
-  // יצירת admin ראשוני - זמני לפיתוח
   createFirstAdmin: async (req, res) => {
     try {
       const admin = await UserService.createFirstAdmin(req.body);
@@ -13,7 +11,7 @@ export const AuthController = {
 
       res.status(201).json({
         success: true,
-        message: 'First admin created successfully',
+        message: "First admin created successfully",
         token: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         user: UserService.filterUserData(admin),
@@ -40,42 +38,39 @@ export const AuthController = {
       const newUser = await UserService.register(req.body);
       const tokens = TokenService.generateTokenPair(newUser._id, newUser.role);
 
+      let personalizedCourseResult = null;
+
       try {
-        const aiResult = await AIService.generatePersonalizedCourse(newUser);
+        personalizedCourseResult =
+          await PersonalizedCourseService.createPersonalizedCourseForUser(newUser);
 
-        const newCourse = new Course({
-          title: aiResult.course.title,
-          description: aiResult.course.description,
-          category: aiResult.course.category,
-          level: aiResult.course.level,
-          instructorId: newUser._id,
-          isPublic: false,
-          enrolledStudents: [newUser._id],
+        console.log("✅ Personalized course created:", {
+          userId: newUser._id,
+          courseId: personalizedCourseResult.course._id,
+          lessons: personalizedCourseResult.selected.lessons.length,
+          songs: personalizedCourseResult.selected.songs.length,
+          exercises: personalizedCourseResult.selected.exercises.length,
+          quizzes: personalizedCourseResult.selected.quizzes.length,
         });
-
-        await newCourse.save();
-
-        newUser.enrolledCourses.push(newCourse._id);
-        newUser.courseProgress.push({
-          course: newCourse._id,
-          progress: 0,
-        });
-
-        await newUser.save();
-      } catch (aiError) {
-        console.error('Failed to automatically create AI course:', aiError);
+      } catch (courseError) {
+        console.error("Failed to create personalized course:", courseError);
       }
 
       const safeUser = UserService.filterUserData(newUser);
 
-      console.log('✅ Register user returned to client:', safeUser);
-
       res.status(201).json({
         success: true,
-        message: 'User registered successfully and personalized course assigned',
+        message: "User registered successfully",
         token: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         user: safeUser,
+        personalizedCourse: personalizedCourseResult
+          ? {
+              id: personalizedCourseResult.course._id,
+              title: personalizedCourseResult.course.title,
+              aiReason: personalizedCourseResult.aiReason,
+            }
+          : null,
       });
     } catch (error) {
       res.status(400).json({
@@ -90,11 +85,9 @@ export const AuthController = {
       const user = await UserService.login(req.body.email, req.body.password);
       const tokens = TokenService.generateTokenPair(user.id, user.role);
 
-      console.log('✅ Login user returned to client:', user);
-
       res.status(200).json({
         success: true,
-        message: 'Login successful',
+        message: "Login successful",
         token: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         user,
@@ -114,16 +107,16 @@ export const AuthController = {
       if (!refreshToken) {
         return res.status(400).json({
           success: false,
-          message: 'Refresh token is required',
+          message: "Refresh token is required",
         });
       }
 
-      const decoded = TokenService.verifyToken(refreshToken, 'refresh');
+      const decoded = TokenService.verifyToken(refreshToken, "refresh");
 
-      if (decoded.type !== 'refresh') {
+      if (decoded.type !== "refresh") {
         return res.status(401).json({
           success: false,
-          message: 'Invalid token type',
+          message: "Invalid token type",
         });
       }
 
@@ -132,7 +125,7 @@ export const AuthController = {
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'User not found',
+          message: "User not found",
         });
       }
 
@@ -140,15 +133,18 @@ export const AuthController = {
 
       res.status(200).json({
         success: true,
-        message: 'Token refreshed successfully',
+        message: "Token refreshed successfully",
         token: newTokens.accessToken,
         refreshToken: newTokens.refreshToken,
       });
     } catch (error) {
-      if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      if (
+        error.name === "JsonWebTokenError" ||
+        error.name === "TokenExpiredError"
+      ) {
         return res.status(401).json({
           success: false,
-          message: 'Invalid or expired refresh token',
+          message: "Invalid or expired refresh token",
         });
       }
 
