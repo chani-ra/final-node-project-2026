@@ -17,6 +17,7 @@ import songsRoutes from './routes/songs.route.js';
 import lessonRoutes from './routes/lessons.route.js';
 import quizRoutes from './routes/quizzes.route.js';
 import exerciseRoutes from './routes/exercises.route.js';
+import messageRoutes from './routes/message.route.js';
 import profileRoutes from './routes/profile.route.js';
 import aiRoutes from './routes/ai.route.js';
 import { seedDefaultData } from './seedDefaultData.js';
@@ -55,6 +56,7 @@ app.use('/songs', songsRoutes);
 app.use('/lessons', lessonRoutes);
 app.use('/quizzes', quizRoutes);
 app.use('/exercises', exerciseRoutes);
+app.use("/messages", messageRoutes);
 app.use('/profile', profileRoutes);
 app.use('/ai', aiRoutes);
 
