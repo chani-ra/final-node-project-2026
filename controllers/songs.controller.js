@@ -3,6 +3,15 @@ import fs from "fs/promises";
 import { existsSync, createReadStream, statSync } from "fs";
 import path from "path";
 
+const allowedHobbies = ["art_music", "sports", "movies", "books"];
+
+const allowedExpectations = [
+  "grammar",
+  "fluent_speaking",
+  "confidence",
+  "vocabulary",
+];
+
 const safeJsonParseArray = (value) => {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -15,24 +24,36 @@ const safeJsonParseArray = (value) => {
   }
 };
 
+const filterAllowedValues = (list, allowedList) => {
+  if (!Array.isArray(list)) return [];
+  return list.filter((item) => allowedList.includes(item));
+};
+
 const parseBoolean = (value, defaultValue = false) => {
   if (value === undefined || value === null) return defaultValue;
   return value === true || value === "true";
 };
 
-const buildTargetAges = (min, max) => ({
-  min: Number(min) || 6,
-  max: Number(max) || 120,
-});
+const buildTargetAges = (min, max) => {
+  const minAge = Number(min) || 6;
+  const maxAge = Number(max) || 120;
 
-// זיהוי סוג קובץ אודיו לפי סיומת
-const getAudioContentType = (filename) => {
-  const ext = path.extname(filename).toLowerCase();
+  return {
+    min: Math.max(4, Math.min(minAge, 120)),
+    max: Math.max(4, Math.min(maxAge, 120)),
+  };
+};
 
-  if (ext === ".mp3") return "audio/mpeg";
-  if (ext === ".wav") return "audio/wav";
-  if (ext === ".m4a") return "audio/mp4";
-  if (ext === ".mp4") return "audio/mp4";
+const getSongFilePath = (fileName) => {
+  return path.join(process.cwd(), "songsList", fileName);
+};
+
+const getAudioContentType = (fileName = "") => {
+  const extension = path.extname(fileName).toLowerCase();
+
+  if (extension === ".wav") return "audio/wav";
+  if (extension === ".m4a") return "audio/mp4";
+  if (extension === ".mp4") return "audio/mp4";
 
   return "audio/mpeg";
 };
@@ -42,17 +63,17 @@ export const SongsController = {
   addSong: async (req, res) => {
     try {
       const {
-        theme,
         title,
+        theme,
         duration,
         level,
+        category,
         targetAge,
+        targetAgeMin,
+        targetAgeMax,
         composer,
         lyricist,
         lessonId,
-        category,
-        targetAgeMin,
-        targetAgeMax,
         hobbies,
         expectations,
         isPublic,
@@ -61,7 +82,8 @@ export const SongsController = {
       if (!theme || !duration || !level || !targetAge || !composer || !lyricist) {
         return res.status(400).json({
           success: false,
-          message: "כל השדות חובה: theme, duration, level, targetAge, composer, lyricist",
+          message:
+            "כל השדות חובה: theme, duration, level, targetAge, composer, lyricist",
         });
       }
 
@@ -72,28 +94,35 @@ export const SongsController = {
         });
       }
 
-      const newSongData = {
-        theme: theme.trim(),
+      const newSong = new Song({
         title: title?.trim() || theme.trim(),
-        duration: duration.toString().trim(),
+        theme: theme.trim(),
+        duration: duration.trim(),
         level: level.trim(),
+        category: category || "listening",
         targetAge: targetAge.trim(),
+        targetAges: buildTargetAges(targetAgeMin, targetAgeMax),
         composer: composer.trim(),
         lyricist: lyricist.trim(),
         audioFileName: req.file.filename,
         uploadedBy: req.user.id,
         lesson: lessonId || null,
-        category: category || "listening",
-        targetAges: buildTargetAges(targetAgeMin, targetAgeMax),
-        hobbies: safeJsonParseArray(hobbies),
-        expectations: safeJsonParseArray(expectations),
+        hobbies: filterAllowedValues(
+          safeJsonParseArray(hobbies),
+          allowedHobbies
+        ),
+        expectations: filterAllowedValues(
+          safeJsonParseArray(expectations),
+          allowedExpectations
+        ),
         isPublic: parseBoolean(isPublic, false),
-      };
+        isWeeklySong: false,
+        weeklySelectedAt: null,
+      });
 
-      const newSong = new Song(newSongData);
       await newSong.save();
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: "שיר נוסף בהצלחה",
         song: newSong,
@@ -101,21 +130,21 @@ export const SongsController = {
     } catch (error) {
       console.error("Error adding song:", error);
 
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: error.message,
       });
     }
   },
 
-  // קבלת כל השירים
+  // קבלת כל השירים למנהל
   getAllSongs: async (req, res) => {
     try {
       const songs = await Song.find()
-        .populate("uploadedBy", "username email")
-        .sort({ createdAt: -1 });
+        .populate("uploadedBy", "username email role")
+        .sort({ isWeeklySong: -1, weeklySelectedAt: -1, createdAt: -1 });
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         count: songs.length,
         songs,
@@ -123,7 +152,29 @@ export const SongsController = {
     } catch (error) {
       console.error("Error fetching songs:", error);
 
-      res.status(500).json({
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  // קבלת שירים ציבוריים לתלמידים
+  getPublicSongs: async (req, res) => {
+    try {
+      const songs = await Song.find({ isPublic: true })
+        .populate("uploadedBy", "username email role")
+        .sort({ createdAt: -1 });
+
+      return res.status(200).json({
+        success: true,
+        count: songs.length,
+        songs,
+      });
+    } catch (error) {
+      console.error("Error fetching public songs:", error);
+
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
@@ -136,24 +187,47 @@ export const SongsController = {
       const { instructorId } = req.params;
 
       const songs = await Song.find({ uploadedBy: instructorId })
-        .populate("uploadedBy", "username email")
+        .populate("uploadedBy", "username email role")
         .sort({ createdAt: -1 });
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         count: songs.length,
         songs,
       });
     } catch (error) {
-      res.status(500).json({
+      console.error("Error fetching songs by instructor:", error);
+
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
     }
   },
 
-  // ניגון שיר לפי מזהה
-  streamSong: async (req, res) => {
+  // קבלת שיר השבוע לתלמידים
+  getWeeklySong: async (req, res) => {
+    try {
+      const song = await Song.findOne({ isWeeklySong: true })
+        .populate("uploadedBy", "username email role")
+        .sort({ weeklySelectedAt: -1 });
+
+      return res.status(200).json({
+        success: true,
+        song,
+      });
+    } catch (error) {
+      console.error("Error fetching weekly song:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  // מנהל קובע שיר שבועי
+  setWeeklySong: async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -166,23 +240,244 @@ export const SongsController = {
         });
       }
 
-      if (!song.audioFileName) {
+      await Song.updateMany(
+        { isWeeklySong: true },
+        {
+          $set: {
+            isWeeklySong: false,
+            weeklySelectedAt: null,
+          },
+        }
+      );
+
+      const updatedSong = await Song.findByIdAndUpdate(
+        id,
+        {
+          $set: {
+            isWeeklySong: true,
+            weeklySelectedAt: new Date(),
+            isPublic: true,
+          },
+        },
+        {
+          new: true,
+          runValidators: false,
+        }
+      ).populate("uploadedBy", "username email role");
+
+      return res.status(200).json({
+        success: true,
+        message: "שיר השבוע עודכן בהצלחה",
+        song: updatedSong,
+      });
+    } catch (error) {
+      console.error("Error setting weekly song:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  // עדכון שיר על ידי מורה או מנהל
+  updateSong: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const oldSong = await Song.findById(id);
+
+      if (!oldSong) {
         return res.status(404).json({
           success: false,
-          message: "לא נמצא קובץ אודיו לשיר הזה",
+          message: "שיר לא נמצא",
         });
       }
 
-      const audioPath = path.join(process.cwd(), "songsList", song.audioFileName);
+      const isOwner = oldSong.uploadedBy.toString() === req.user.id;
+      const isAdmin = req.user.role === "admin";
 
-      if (!existsSync(audioPath)) {
-        return res.status(404).json({
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
           success: false,
-          message: "קובץ האודיו לא נמצא בשרת",
+          message: "אין לך הרשאה לערוך שיר זה",
         });
       }
 
-      const stat = statSync(audioPath);
+      const updatedSongData = { ...req.body };
+
+      if (updatedSongData.title) {
+        updatedSongData.title = updatedSongData.title.trim();
+      }
+
+      if (updatedSongData.theme) {
+        updatedSongData.theme = updatedSongData.theme.trim();
+      }
+
+      if (updatedSongData.duration) {
+        updatedSongData.duration = updatedSongData.duration.trim();
+      }
+
+      if (updatedSongData.targetAge) {
+        updatedSongData.targetAge = updatedSongData.targetAge.trim();
+      }
+
+      if (updatedSongData.composer) {
+        updatedSongData.composer = updatedSongData.composer.trim();
+      }
+
+      if (updatedSongData.lyricist) {
+        updatedSongData.lyricist = updatedSongData.lyricist.trim();
+      }
+
+      if (updatedSongData.hobbies !== undefined) {
+        updatedSongData.hobbies = filterAllowedValues(
+          safeJsonParseArray(updatedSongData.hobbies),
+          allowedHobbies
+        );
+      }
+
+      if (updatedSongData.expectations !== undefined) {
+        updatedSongData.expectations = filterAllowedValues(
+          safeJsonParseArray(updatedSongData.expectations),
+          allowedExpectations
+        );
+      }
+
+      if (
+        updatedSongData.targetAgeMin !== undefined ||
+        updatedSongData.targetAgeMax !== undefined
+      ) {
+        updatedSongData.targetAges = buildTargetAges(
+          updatedSongData.targetAgeMin ?? oldSong.targetAges?.min,
+          updatedSongData.targetAgeMax ?? oldSong.targetAges?.max
+        );
+
+        delete updatedSongData.targetAgeMin;
+        delete updatedSongData.targetAgeMax;
+      }
+
+      if (updatedSongData.isPublic !== undefined) {
+        updatedSongData.isPublic = parseBoolean(
+          updatedSongData.isPublic,
+          false
+        );
+      }
+
+      if (updatedSongData.isWeeklySong !== undefined && !isAdmin) {
+        delete updatedSongData.isWeeklySong;
+      }
+
+      if (updatedSongData.weeklySelectedAt !== undefined && !isAdmin) {
+        delete updatedSongData.weeklySelectedAt;
+      }
+
+      if (req.file) {
+        if (oldSong.audioFileName) {
+          const oldFilePath = getSongFilePath(oldSong.audioFileName);
+
+          if (existsSync(oldFilePath)) {
+            await fs.unlink(oldFilePath);
+          }
+        }
+
+        updatedSongData.audioFileName = req.file.filename;
+      }
+
+      delete updatedSongData.uploadedBy;
+
+      const updatedSong = await Song.findByIdAndUpdate(id, updatedSongData, {
+        new: true,
+        runValidators: true,
+      }).populate("uploadedBy", "username email role");
+
+      return res.status(200).json({
+        success: true,
+        message: "שיר עודכן בהצלחה",
+        song: updatedSong,
+      });
+    } catch (error) {
+      console.error("Error updating song:", error);
+
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  // מחיקת שיר על ידי מורה או מנהל
+  deleteSong: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const song = await Song.findById(id);
+
+      if (!song) {
+        return res.status(404).json({
+          success: false,
+          message: "שיר לא נמצא",
+        });
+      }
+
+      const isOwner = song.uploadedBy.toString() === req.user.id;
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "אין לך הרשאה למחוק שיר זה",
+        });
+      }
+
+      if (song.audioFileName) {
+        const filePath = getSongFilePath(song.audioFileName);
+
+        if (existsSync(filePath)) {
+          await fs.unlink(filePath);
+        }
+      }
+
+      await Song.findByIdAndDelete(id);
+
+      return res.status(200).json({
+        success: true,
+        message: "שיר נמחק בהצלחה",
+      });
+    } catch (error) {
+      console.error("Error deleting song:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  // הזרמת קובץ אודיו
+  streamSong: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const song = await Song.findById(id);
+
+      if (!song || !song.audioFileName) {
+        return res.status(404).json({
+          success: false,
+          message: "קובץ שיר לא נמצא",
+        });
+      }
+
+      const filePath = getSongFilePath(song.audioFileName);
+
+      if (!existsSync(filePath)) {
+        return res.status(404).json({
+          success: false,
+          message: "קובץ אודיו לא נמצא בשרת",
+        });
+      }
+
+      const stat = statSync(filePath);
       const fileSize = stat.size;
       const range = req.headers.range;
       const contentType = getAudioContentType(song.audioFileName);
@@ -193,6 +488,8 @@ export const SongsController = {
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
         const chunkSize = end - start + 1;
 
+        const file = createReadStream(filePath, { start, end });
+
         res.writeHead(206, {
           "Content-Range": `bytes ${start}-${end}/${fileSize}`,
           "Accept-Ranges": "bytes",
@@ -200,7 +497,7 @@ export const SongsController = {
           "Content-Type": contentType,
         });
 
-        createReadStream(audioPath, { start, end }).pipe(res);
+        file.pipe(res);
         return;
       }
 
@@ -209,134 +506,11 @@ export const SongsController = {
         "Content-Type": contentType,
       });
 
-      createReadStream(audioPath).pipe(res);
+      createReadStream(filePath).pipe(res);
     } catch (error) {
       console.error("Error streaming song:", error);
 
-      res.status(500).json({
-        success: false,
-        message: "שגיאה בהשמעת השיר",
-        error: error.message,
-      });
-    }
-  },
-
-  // עדכון שיר
-  updateSong: async (req, res) => {
-    const { id } = req.params;
-
-    try {
-      const oldSong = await Song.findById(id);
-
-      if (!oldSong) {
-        return res.status(404).json({
-          success: false,
-          message: "שיר לא נמצא",
-        });
-      }
-
-      if (oldSong.uploadedBy.toString() !== req.user.id && req.user.role !== "admin") {
-        return res.status(403).json({
-          success: false,
-          message: "אתה לא מורשה לערוך שיר זה",
-        });
-      }
-
-      const updatedSongData = { ...req.body };
-
-      if (updatedSongData.hobbies) {
-        updatedSongData.hobbies = safeJsonParseArray(updatedSongData.hobbies);
-      }
-
-      if (updatedSongData.expectations) {
-        updatedSongData.expectations = safeJsonParseArray(updatedSongData.expectations);
-      }
-
-      if (updatedSongData.targetAgeMin || updatedSongData.targetAgeMax) {
-        updatedSongData.targetAges = buildTargetAges(
-          updatedSongData.targetAgeMin,
-          updatedSongData.targetAgeMax
-        );
-
-        delete updatedSongData.targetAgeMin;
-        delete updatedSongData.targetAgeMax;
-      }
-
-      if (updatedSongData.isPublic !== undefined) {
-        updatedSongData.isPublic = parseBoolean(updatedSongData.isPublic, false);
-      }
-
-      if (req.file) {
-        if (oldSong.audioFileName) {
-          const oldFilePath = path.join(process.cwd(), "songsList", oldSong.audioFileName);
-
-          if (existsSync(oldFilePath)) {
-            await fs.unlink(oldFilePath);
-          }
-        }
-
-        updatedSongData.audioFileName = req.file.filename;
-      }
-
-      const updatedSong = await Song.findByIdAndUpdate(id, updatedSongData, {
-        new: true,
-        runValidators: true,
-      });
-
-      res.status(200).json({
-        success: true,
-        message: "שיר עודכן בהצלחה",
-        song: updatedSong,
-      });
-    } catch (error) {
-      console.error("Error updating song:", error);
-
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  // מחיקת שיר
-  deleteSong: async (req, res) => {
-    const { id } = req.params;
-
-    try {
-      const deletedSong = await Song.findById(id);
-
-      if (!deletedSong) {
-        return res.status(404).json({
-          success: false,
-          message: "שיר לא נמצא",
-        });
-      }
-
-      if (deletedSong.uploadedBy.toString() !== req.user.id && req.user.role !== "admin") {
-        return res.status(403).json({
-          success: false,
-          message: "אתה לא מורשה למחוק שיר זה",
-        });
-      }
-
-      await Song.findByIdAndDelete(id);
-
-      if (deletedSong.audioFileName) {
-        const filePath = path.join(process.cwd(), "songsList", deletedSong.audioFileName);
-
-        if (existsSync(filePath)) {
-          await fs.unlink(filePath);
-        }
-      }
-
-      res.status(200).json({
-        success: true,
-        message: "שיר נמחק בהצלחה",
-      });
-    } catch (error) {
-      console.error("Error deleting song:", error);
-
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: error.message,
       });

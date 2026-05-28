@@ -1,15 +1,26 @@
 import { Router } from "express";
 import multer from "multer";
 import path from "path";
+import fs from "fs";
+
 import SongsController from "../controllers/songs.controller.js";
-import { authenticateToken, requireTeacher } from "../middlewares/auth.middleware.js";
+import {
+  authenticateToken,
+  requireTeacher,
+  requireAdmin,
+} from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-// הגדרת אחסון קבצי אודיו
+const songsDir = "songsList/";
+
+if (!fs.existsSync(songsDir)) {
+  fs.mkdirSync(songsDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "songsList/");
+    cb(null, songsDir);
   },
 
   filename: function (req, file, cb) {
@@ -18,16 +29,14 @@ const storage = multer.diskStorage({
   },
 });
 
-// סינון קבצי אודיו מותרים
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ["audio/mpeg", "audio/wav", "audio/mp4", "audio/x-m4a"];
 
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
-    return;
+  } else {
+    cb(new Error("רק קבצי אודיו מותרים (MP3, WAV, M4A)"), false);
   }
-
-  cb(new Error("רק קבצי אודיו מותרים (MP3, WAV, M4A)"), false);
 };
 
 const upload = multer({
@@ -36,7 +45,7 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// הוספת שיר
+// מורה מעלה שיר
 router.post(
   "/song",
   authenticateToken,
@@ -45,14 +54,37 @@ router.post(
   SongsController.addSong
 );
 
-// קבלת כל השירים
-router.get("/", SongsController.getAllSongs);
+// מנהל מקבל את כל השירים
+router.get(
+  "/admin/all",
+  authenticateToken,
+  requireAdmin,
+  SongsController.getAllSongs
+);
 
-// קבלת שירים לפי מורה
-router.get("/instructor/:instructorId", SongsController.getSongsByInstructor);
+// קבלת שירים ציבוריים
+router.get("/public", SongsController.getPublicSongs);
 
-// ניגון שיר לפי מזהה
+// קבלת שיר השבוע
+router.get("/weekly", SongsController.getWeeklySong);
+
+// מנהל קובע שיר שבועי
+router.patch(
+  "/song/:id/weekly",
+  authenticateToken,
+  requireAdmin,
+  SongsController.setWeeklySong
+);
+
+// הזרמת אודיו
 router.get("/song/:id/stream", SongsController.streamSong);
+
+// קבלת שירים של מורה
+router.get(
+  "/instructor/:instructorId",
+  authenticateToken,
+  SongsController.getSongsByInstructor
+);
 
 // עדכון שיר
 router.put(

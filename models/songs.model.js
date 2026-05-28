@@ -2,21 +2,22 @@ import { Schema, model } from "mongoose";
 
 const songSchema = new Schema(
   {
+    title: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     theme: {
       type: String,
       required: true,
       trim: true,
     },
 
-    title: {
-      type: String,
-      default: "",
-      trim: true,
-    },
-
     duration: {
       type: String,
       required: true,
+      trim: true,
     },
 
     level: {
@@ -26,64 +27,22 @@ const songSchema = new Schema(
       index: true,
     },
 
+    category: {
+      type: String,
+      enum: ["grammar", "vocabulary", "conversation", "reading", "listening", "general"],
+      default: "listening",
+      index: true,
+    },
+
     targetAge: {
       type: String,
       required: true,
+      trim: true,
     },
 
     targetAges: {
-      min: {
-        type: Number,
-        default: 6,
-      },
-      max: {
-        type: Number,
-        default: 120,
-      },
-    },
-
-    composer: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    lyricist: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    audioFileName: {
-      type: String,
-    },
-
-    uploadedBy: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
-
-    lesson: {
-      type: Schema.Types.ObjectId,
-      ref: "Lesson",
-      default: null,
-    },
-
-    // שדות התאמה ל-AI
-    category: {
-      type: String,
-      enum: [
-        "grammar",
-        "vocabulary",
-        "conversation",
-        "reading",
-        "listening",
-        "general",
-      ],
-      default: "listening",
-      index: true,
+      min: { type: Number, default: 6, min: 4, max: 120 },
+      max: { type: Number, default: 120, min: 4, max: 120 },
     },
 
     hobbies: {
@@ -100,16 +59,58 @@ const songSchema = new Schema(
       index: true,
     },
 
+    composer: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    lyricist: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    audioFileName: {
+      type: String,
+      required: true,
+    },
+
+    uploadedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    lesson: {
+      type: Schema.Types.ObjectId,
+      ref: "Lesson",
+      default: null,
+    },
+
     isPublic: {
       type: Boolean,
-      default: true,
+      default: false,
       index: true,
+    },
+
+    isWeeklySong: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    weeklySelectedAt: {
+      type: Date,
+      default: null,
     },
   },
   { timestamps: true }
 );
 
+songSchema.index({ isPublic: 1, level: 1, category: 1 });
 songSchema.index({ uploadedBy: 1, createdAt: -1 });
-songSchema.index({ category: 1, level: 1, isPublic: 1 });
+songSchema.index({ isWeeklySong: 1, weeklySelectedAt: -1 });
 
 export default model("song", songSchema);
