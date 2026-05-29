@@ -6,114 +6,183 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // ניסיון בטוח לפענח JSON מה-AI
 const parseAIJson = (text, fallbackValue) => {
-    try {
-        return JSON.parse(text);
-    } catch (error) {
-        console.error("❌ Failed to parse AI JSON:", text);
-        return fallbackValue;
-    }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("❌ Failed to parse AI JSON:", text);
+    return fallbackValue;
+  }
+};
+
+// בדיקה האם השגיאה היא עומס / חריגה ממכסת Gemini
+const isRateLimitError = (error) => {
+  return (
+    error?.status === 429 ||
+    error?.code === 429 ||
+    error?.message?.includes("429") ||
+    error?.message?.toLowerCase().includes("too many requests") ||
+    error?.message?.toLowerCase().includes("quota")
+  );
 };
 
 // בדיקה קצרה אם ההודעה קשורה ללימוד אנגלית
 const isEnglishLearningRequest = (message = "") => {
-    const text = message.toLowerCase();
+  const text = message.toLowerCase();
 
-    const hasEnglishText = /[a-zA-Z]/.test(text);
+  const hasEnglishText = /[a-zA-Z]/.test(text);
 
-    const learningPattern =
-        /(אנגלית|דקדוק|תרגום|תרגם|מילה|מילים|משפט|משפטים|ביטוי|ביטויים|שיחה|דיבור|הגייה|כתיבה|קריאה|שמיעה|ללמוד|תלמד|לתרגל|תסביר|הסבר|תקן|תתקן|עבר|הווה|עתיד|זמן|זמנים|פועל|פעלים|שם עצם|שם תואר|עבר מושלם|עבר פשוט|הווה פשוט|הווה מושלם|english|grammar|vocabulary|sentence|word|translate|conversation|practice|correct|meaning|pronunciation|tense|verb|past|present|future|perfect|simple)/i;
+  const learningPattern =
+    /(אנגלית|דקדוק|תרגום|תרגם|מילה|מילים|משפט|ביטוי|שיחה|דיבור|הגייה|כתיבה|קריאה|שמיעה|ללמוד|לתרגל|תסביר|הסבר|תקן|עבר|הווה|עתיד|זמן|זמנים|פועל|english|grammar|vocabulary|sentence|word|translate|conversation|practice|correct|meaning|pronunciation|tense|verb|past|present|future|perfect|simple)/i;
 
-    return hasEnglishText || learningPattern.test(text);
+  return hasEnglishText || learningPattern.test(text);
 };
 
+// תוכנית גיבוי למאמן האישי כש-Gemini לא זמין
+const getCoachFallbackPlan = () => {
+  return {
+    focus: "תרגול קצר להיום",
+    summary:
+      "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית, לכן מוצגת תוכנית גיבוי חכמה.",
+    steps: [
+      "בחרי 5 מילים חדשות מתוך שיעור, שיר או קטע קצר.",
+      "כתבי ליד כל מילה פירוש קצר בעברית.",
+      "כתבי משפט אחד באנגלית עם אחת מהמילים.",
+    ],
+    tip: "נסי שוב בעוד כמה דקות לקבלת תוכנית מותאמת אישית מה־AI.",
+    encouragement: "גם תרגול קצר בלי AI מקדם אותך. העיקר להמשיך בצעד קטן וברור.",
+    estimatedMinutes: 15,
+  };
+};
+
+// תשובת גיבוי לצ׳אט כש-Gemini לא זמין
+const getConversationFallbackReply = () => {
+  return (
+    "כרגע יש עומס או מגבלת שימוש זמנית בחיבור ל־AI.\n" +
+    "בינתיים אפשר לתרגל כך:\n" +
+    "1. כתבי משפט אחד באנגלית.\n" +
+    "2. נסי לתרגם אותו לעברית.\n" +
+    "3. בעוד כמה דקות נסי לשלוח לי אותו שוב ואעזור לך לתקן."
+  );
+};
 
 export const AiController = {
-    // תיקון דקדוק + שמירה ל-DB
-    correctGrammar: async (req, res, next) => {
-        try {
-            const { text } = req.body;
-            const userId = req.user.id;
+  // תיקון דקדוק + שמירה ל-DB
+  correctGrammar: async (req, res, next) => {
+    try {
+      const { text } = req.body;
+      const userId = req.user.id;
 
-            if (!text) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Text is required",
-                });
-            }
+      if (!text) {
+        return res.status(400).json({
+          success: false,
+          message: "Text is required",
+        });
+      }
 
-            const prompt = `You are an English teacher for Hebrew speakers. Correct the grammar and spelling. Return JSON: {"original": "${text}", "corrected": "...", "explanation": "הסבר בעברית"}. Text: "${text}"`;
+      const prompt = `You are an English teacher for Hebrew speakers. Correct the grammar and spelling. Return JSON: {"original": "${text}", "corrected": "...", "explanation": "הסבר בעברית"}. Text: "${text}"`;
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" },
-            });
+      let response;
 
-            const aiResult = parseAIJson(response.text, {
-                original: text,
-                corrected: text,
-                explanation: "לא הצלחנו לנתח את תשובת ה-AI.",
-            });
-
-            await User.findByIdAndUpdate(
-                userId,
-                {
-                    $push: { grammarHistory: aiResult },
-                },
-                { new: true }
-            );
-
-            console.log("✅ Grammar data saved successfully to DB for user:", userId);
-
-            return res.status(200).json({
-                success: true,
-                data: aiResult,
-            });
-        } catch (error) {
-            next(error);
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            data: {
+              original: text,
+              corrected: text,
+              explanation:
+                "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות.",
+            },
+          });
         }
-    },
 
-    // תרגום טקסט
-    translateText: async (req, res, next) => {
-        try {
-            const { text, targetLang = "Hebrew" } = req.body;
+        throw aiError;
+      }
 
-            if (!text) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Text is required",
-                });
-            }
+      const aiResult = parseAIJson(response.text, {
+        original: text,
+        corrected: text,
+        explanation: "לא הצלחנו לנתח את תשובת ה-AI.",
+      });
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: `Translate the following text into ${targetLang}. Return ONLY the translated text.\nText: "${text}"`,
-            });
+      await User.findByIdAndUpdate(
+        userId,
+        {
+          $push: { grammarHistory: aiResult },
+        },
+        { new: true }
+      );
 
-            return res.status(200).json({
-                success: true,
-                translation: response.text.trim(),
-            });
-        } catch (error) {
-            next(error);
+      return res.status(200).json({
+        success: true,
+        data: aiResult,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // תרגום טקסט
+  translateText: async (req, res, next) => {
+    try {
+      const { text, targetLang = "Hebrew" } = req.body;
+
+      if (!text) {
+        return res.status(400).json({
+          success: false,
+          message: "Text is required",
+        });
+      }
+
+      let response;
+
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `Translate the following text into ${targetLang}. Return ONLY the translated text.\nText: "${text}"`,
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            translation:
+              "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות.",
+          });
         }
-    },
-    // עוזר מילון אישי: תיקון כתיב, תרגום, הסבר ודוגמה
-    dictionaryHelper: async (req, res, next) => {
-        try {
-            const { text } = req.body;
 
-            if (!text || !text.trim()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "נא להזין מילה או ביטוי באנגלית",
-                });
-            }
+        throw aiError;
+      }
 
-            const cleanText = text.trim();
+      return res.status(200).json({
+        success: true,
+        translation: response.text.trim(),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 
-            const prompt = `
+  // עוזר מילון אישי: תיקון כתיב, תרגום, הסבר ודוגמה
+  dictionaryHelper: async (req, res, next) => {
+    try {
+      const { text } = req.body;
+
+      if (!text || !text.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "נא להזין מילה או ביטוי באנגלית",
+        });
+      }
+
+      const cleanText = text.trim();
+
+      const prompt = `
 You are an English dictionary helper for Hebrew-speaking students.
 
 The student entered this English word or phrase:
@@ -139,56 +208,77 @@ Return this exact structure:
 }
 `;
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" },
-            });
+      let response;
 
-            const result = parseAIJson(response.text, {
-                originalInput: cleanText,
-                correctedWord: cleanText,
-                translation: "",
-                definition: "",
-                example: "",
-                wasCorrected: false,
-            });
-
-            return res.status(200).json({
-                success: true,
-                data: result,
-            });
-        } catch (error) {
-            console.error("❌ Dictionary helper error:", error.message || error);
-            next(error);
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            data: {
+              originalInput: cleanText,
+              correctedWord: cleanText,
+              translation: "",
+              definition:
+                "AI is temporarily unavailable because of usage limits.",
+              example: "",
+              wasCorrected: false,
+            },
+          });
         }
-    },
 
-    // תרגול שיחה באנגלית בלבד עם סינון נושא
-    conversation: async (req, res, next) => {
-        try {
-            const { message, level } = req.body;
+        throw aiError;
+      }
 
-            if (!message || !message.trim()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Message is required",
-                });
-            }
+      const result = parseAIJson(response.text, {
+        originalInput: cleanText,
+        correctedWord: cleanText,
+        translation: "",
+        definition: "",
+        example: "",
+        wasCorrected: false,
+      });
 
-            const cleanMessage = message.trim();
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error("❌ Dictionary helper error:", error.message || error);
+      next(error);
+    }
+  },
 
-            if (!isEnglishLearningRequest(cleanMessage)) {
-                return res.status(200).json({
-                    success: true,
-                    reply:
-                        "אני כאן כדי לעזור רק בלימוד אנגלית 😊\nאפשר לבקש ממני: לתרגל שיחה, לתקן משפט, להסביר מילה, ללמוד דקדוק, להבין זמנים באנגלית או לבנות משפטים.",
-                });
-            }
+  // תרגול שיחה באנגלית בלבד עם סינון נושא
+  conversation: async (req, res, next) => {
+    try {
+      const { message, level } = req.body;
 
-            const safeLevel = level || "beginner";
+      if (!message || !message.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Message is required",
+        });
+      }
 
-            const prompt = `
+      const cleanMessage = message.trim();
+
+      if (!isEnglishLearningRequest(cleanMessage)) {
+        return res.status(200).json({
+          success: true,
+          reply:
+            "אני כאן כדי לעזור רק בלימוד אנגלית 😊\nאפשר לבקש ממני: לתרגל שיחה, לתקן משפט, להסביר מילה, ללמוד דקדוק, להבין זמנים באנגלית או לבנות משפטים.",
+        });
+      }
+
+      const safeLevel = level || "beginner";
+
+      const prompt = `
 You are "Bolt AI", an English learning assistant for Hebrew-speaking students.
 
 Your role:
@@ -218,251 +308,362 @@ Important rules:
 10. If the student asks about "הווה מושלם", explain Present Perfect.
 `;
 
-            let response;
+      let response;
 
-            try {
-                response = await ai.models.generateContent({
-                    model: "gemini-2.5-flash",
-                    contents: prompt,
-                });
-            } catch (aiError) {
-                console.error("❌ Gemini conversation error:", aiError.message || aiError);
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+        });
+      } catch (aiError) {
+        console.error("❌ Gemini conversation error:", aiError.message || aiError);
 
-                return res.status(200).json({
-                    success: true,
-                    reply:
-                        "כרגע יש תקלה זמנית בחיבור ל־AI. נסי שוב בעוד רגע. בינתיים אפשר לכתוב לי משפט באנגלית לתרגול.",
-                });
-            }
-
-            return res.status(200).json({
-                success: true,
-                reply:
-                    response.text?.trim() ||
-                    "אני כאן כדי לעזור לך לתרגל אנגלית. כתבי לי משפט או נושא באנגלית ונמשיך משם.",
-            });
-        } catch (error) {
-            console.error("❌ Conversation controller error:", error.message || error);
-
-            return res.status(500).json({
-                success: false,
-                message: "שגיאה בצ׳אט AI",
-            });
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            reply: getConversationFallbackReply(),
+          });
         }
-    },
 
-    // יצירת תרגילים
-    generateExercise: async (req, res, next) => {
-        try {
-            const { topic, level, exerciseType, prompt } = req.body;
+        return res.status(200).json({
+          success: true,
+          reply:
+            "כרגע יש תקלה זמנית בחיבור ל־AI. נסי שוב בעוד רגע. בינתיים אפשר לכתוב לי משפט באנגלית לתרגול.",
+        });
+      }
 
-            const finalTopic = topic || prompt || "English practice";
-            const finalLevel = level || "intermediate";
-            const finalType = exerciseType || "vocabulary";
+      return res.status(200).json({
+        success: true,
+        reply:
+          response.text?.trim() ||
+          "אני כאן כדי לעזור לך לתרגל אנגלית. כתבי לי משפט או נושא באנגלית ונמשיך משם.",
+      });
+    } catch (error) {
+      console.error("❌ Conversation controller error:", error.message || error);
 
-            const aiPrompt = `Create a ${finalType} exercise about "${finalTopic}" for ${finalLevel} level. Return strictly as JSON array: [{"sentence": "...", "correctAnswer": "...", "hint": "..."}]`;
+      return res.status(500).json({
+        success: false,
+        message: "שגיאה בצ׳אט AI",
+      });
+    }
+  },
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: aiPrompt,
-                config: { responseMimeType: "application/json" },
-            });
+  // יצירת תרגילים
+  generateExercise: async (req, res, next) => {
+    try {
+      const { topic, level, exerciseType, prompt } = req.body;
 
-            const data = parseAIJson(response.text, []);
+      const finalTopic = topic || prompt || "English practice";
+      const finalLevel = level || "intermediate";
+      const finalType = exerciseType || "vocabulary";
 
-            return res.status(200).json({
-                success: true,
-                data,
-            });
-        } catch (error) {
-            next(error);
+      const aiPrompt = `Create a ${finalType} exercise about "${finalTopic}" for ${finalLevel} level. Return strictly as JSON array: [{"sentence": "...", "correctAnswer": "...", "hint": "..."}]`;
+
+      let response;
+
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: aiPrompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            data: [
+              {
+                sentence: "I want to learn a new ___ today.",
+                correctAnswer: "word",
+                hint: "Something you learn in vocabulary practice.",
+              },
+            ],
+          });
         }
-    },
 
-    // בדיקת חיבור
-    checkEssay: async (req, res, next) => {
-        try {
-            const { text, studentLevel } = req.body;
+        throw aiError;
+      }
 
-            if (!text) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Text is required",
-                });
-            }
+      const data = parseAIJson(response.text, []);
 
-            const prompt = `Review this essay (level ${studentLevel || "intermediate"}). Return JSON: {"score": 85, "generalFeedback": "...", "grammarCorrections": [{"mistake": "...", "correction": "...", "explanation": "..."}]}. Essay: "${text}"`;
+      return res.status(200).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" },
-            });
+  // בדיקת חיבור
+  checkEssay: async (req, res, next) => {
+    try {
+      const { text, studentLevel } = req.body;
 
-            const data = parseAIJson(response.text, {
-                score: 0,
-                generalFeedback: "לא הצלחנו לנתח את החיבור כרגע.",
-                grammarCorrections: [],
-            });
+      if (!text) {
+        return res.status(400).json({
+          success: false,
+          message: "Text is required",
+        });
+      }
 
-            return res.status(200).json({
-                success: true,
-                data,
-            });
-        } catch (error) {
-            next(error);
+      const prompt = `Review this essay (level ${studentLevel || "intermediate"}). Return JSON: {"score": 85, "generalFeedback": "...", "grammarCorrections": [{"mistake": "...", "correction": "...", "explanation": "..."}]}. Essay: "${text}"`;
+
+      let response;
+
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            data: {
+              score: 0,
+              generalFeedback:
+                "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות.",
+              grammarCorrections: [],
+            },
+          });
         }
-    },
 
-    // יצירת בחן אמריקאי
-    generateQuiz: async (req, res, next) => {
-        try {
-            const { topic, difficulty, questionCount } = req.body;
+        throw aiError;
+      }
 
-            const prompt = `Create a quiz about "${topic || "English"}" at ${difficulty || "intermediate"
-                } difficulty. Generate ${questionCount || 5
-                } questions. Return JSON array: [{"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "..."}]`;
+      const data = parseAIJson(response.text, {
+        score: 0,
+        generalFeedback: "לא הצלחנו לנתח את החיבור כרגע.",
+        grammarCorrections: [],
+      });
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" },
-            });
+      return res.status(200).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 
-            const questions = parseAIJson(response.text, []);
+  // יצירת בחן אמריקאי
+  generateQuiz: async (req, res, next) => {
+    try {
+      const { topic, difficulty, questionCount } = req.body;
 
-            return res.status(200).json({
-                success: true,
-                questions,
-            });
-        } catch (error) {
-            next(error);
+      const prompt = `Create a quiz about "${topic || "English"}" at ${
+        difficulty || "intermediate"
+      } difficulty. Generate ${
+        questionCount || 5
+      } questions. Return JSON array: [{"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "..."}]`;
+
+      let response;
+
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            questions: [
+              {
+                question: "What is the correct sentence?",
+                options: [
+                  "She go to school.",
+                  "She goes to school.",
+                  "She going to school.",
+                  "She gone to school.",
+                ],
+                correctAnswer: "She goes to school.",
+              },
+            ],
+          });
         }
-    },
 
-    // שמירת תוצאות בוחן
-    saveQuizResult: async (req, res, next) => {
-        try {
-            const { topic, score, totalQuestions } = req.body;
-            const userId = req.user.id;
+        throw aiError;
+      }
 
-            await User.findByIdAndUpdate(userId, {
-                $push: {
-                    quizResults: {
-                        topic,
-                        score,
-                        totalQuestions,
-                        completedAt: new Date(),
-                    },
-                },
-            });
+      const questions = parseAIJson(response.text, []);
 
-            return res.status(200).json({
-                success: true,
-                message: "Quiz result saved!",
-            });
-        } catch (error) {
-            next(error);
-        }
-    },
+      return res.status(200).json({
+        success: true,
+        questions,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 
-    // יצירת תוכנית למידה כללית
-    generateLearningPlan: async (req, res, next) => {
-        try {
-            const prompt = `Generate a 4-week study schedule.
+  // שמירת תוצאות בוחן
+  saveQuizResult: async (req, res, next) => {
+    try {
+      const { topic, score, totalQuestions } = req.body;
+      const userId = req.user.id;
+
+      await User.findByIdAndUpdate(userId, {
+        $push: {
+          quizResults: {
+            topic,
+            score,
+            totalQuestions,
+            completedAt: new Date(),
+          },
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Quiz result saved!",
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // יצירת תוכנית למידה כללית
+  generateLearningPlan: async (req, res, next) => {
+    try {
+      const prompt = `Generate a 4-week study schedule.
 Important: the text must be in Hebrew.
 Add feedback and wishes at the end of the plan.
 Return JSON array: [{"week": 1, "focus": "...", "tasks": ["..."]}].`;
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" },
-            });
+      let response;
 
-            const plan = parseAIJson(response.text, []);
-
-            return res.status(200).json({
-                success: true,
-                plan,
-            });
-        } catch (error) {
-            console.error("❌ AI Learning Plan Error:", error.message || error);
-            next(error);
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            plan: [
+              {
+                week: 1,
+                focus: "חיזוק בסיס באנגלית",
+                tasks: [
+                  "ללמוד 5 מילים חדשות ביום",
+                  "לתרגל משפט אחד בכל יום",
+                  "לקרוא קטע קצר באנגלית פעמיים בשבוע",
+                ],
+              },
+            ],
+          });
         }
-    },
 
-    // טיפים ללמידה
-    getStudyTips: async (req, res, next) => {
-        try {
-            const { level, focusArea } = req.query;
+        throw aiError;
+      }
 
-            const prompt = `Provide 3 study tips for level ${level || "intermediate"
-                } in ${focusArea || "general"}.
+      const plan = parseAIJson(response.text, []);
+
+      return res.status(200).json({
+        success: true,
+        plan,
+      });
+    } catch (error) {
+      console.error("❌ AI Learning Plan Error:", error.message || error);
+      next(error);
+    }
+  },
+
+  // טיפים ללמידה
+  getStudyTips: async (req, res, next) => {
+    try {
+      const { level, focusArea } = req.query;
+
+      const prompt = `Provide 3 study tips for level ${
+        level || "intermediate"
+      } in ${focusArea || "general"}.
 Important: The explanation must be in Hebrew and in English.
 Return JSON array of strings.`;
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" },
-            });
+      let response;
 
-            const tips = parseAIJson(response.text, []);
-
-            return res.status(200).json({
-                success: true,
-                tips,
-            });
-        } catch (error) {
-            next(error);
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            tips: [
+              "לתרגל מעט כל יום עדיף על עומס גדול פעם בשבוע.",
+              "כדאי ללמוד מילים בתוך משפטים ולא לבד.",
+              "קריאה בקול עוזרת מאוד לביטחון בדיבור.",
+            ],
+          });
         }
-    },
 
-    // מאמן למידה אישי לתלמידה
-    generateCoachPlan: async (req, res, next) => {
-        try {
-            const userId = req.user.id;
-            const { note } = req.body;
+        throw aiError;
+      }
 
-            if (!note || !note.trim()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "נא לכתוב במה את רוצה עזרה או מה קשה לך היום",
-                });
-            }
+      const tips = parseAIJson(response.text, []);
 
-            const user = await User.findById(userId)
-                .select(
-                    "username email englishLevel favoriteHobbies expectations quizResults grammarHistory coachHistory"
-                )
-                .lean();
+      return res.status(200).json({
+        success: true,
+        tips,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 
-            if (!user) {
-                return res.status(404).json({
-                    success: false,
-                    message: "משתמש לא נמצא",
-                });
-            }
+  // מאמן למידה אישי לתלמידה
+  generateCoachPlan: async (req, res, next) => {
+    try {
+      const userId = req.user.id;
+      const { note } = req.body;
 
-            const userProfile = {
-                username: user.username || "תלמידה",
-                englishLevel: user.englishLevel || "beginner",
-                favoriteHobbies: user.favoriteHobbies || [],
-                expectations: user.expectations || [],
-                recentQuizResults: (user.quizResults || []).slice(-5),
-                recentGrammarHistory: (user.grammarHistory || []).slice(-3),
-                recentCoachNotes: (user.coachHistory || [])
-                    .slice(-3)
-                    .map((item) => ({
-                        note: item.note,
-                        focus: item.plan?.focus,
-                        createdAt: item.createdAt,
-                    })),
-                studentNote: note.trim(),
-            };
+      if (!note || !note.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "נא לכתוב במה את רוצה עזרה או מה קשה לך היום",
+        });
+      }
 
-            const prompt = `
+      const user = await User.findById(userId)
+        .select(
+          "username email englishLevel favoriteHobbies expectations quizResults grammarHistory coachHistory"
+        )
+        .lean();
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "משתמש לא נמצא",
+        });
+      }
+
+      const userProfile = {
+        username: user.username || "תלמידה",
+        englishLevel: user.englishLevel || "beginner",
+        favoriteHobbies: user.favoriteHobbies || [],
+        expectations: user.expectations || [],
+        recentQuizResults: (user.quizResults || []).slice(-5),
+        recentGrammarHistory: (user.grammarHistory || []).slice(-3),
+        recentCoachNotes: (user.coachHistory || [])
+          .slice(-3)
+          .map((item) => ({
+            note: item.note,
+            focus: item.plan?.focus,
+            createdAt: item.createdAt,
+          })),
+        studentNote: note.trim(),
+      };
+
+      const prompt = `
 You are an expert English learning coach for Hebrew-speaking students.
 
 Create a short, practical, personal study plan for today.
@@ -490,67 +691,91 @@ Return this exact JSON structure:
 }
 `;
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" },
-            });
+      let response;
 
-            const coachPlan = parseAIJson(response.text, {
-                focus: "תרגול קצר להיום",
-                summary: "נראה שכדאי לך לעבוד היום בצעד קטן וברור.",
-                steps: [
-                    "בחרי שיעור או שיר קצר.",
-                    "כתבי 3 מילים חדשות.",
-                    "אמרי בקול משפט אחד באנגלית.",
-                ],
-                tip: "עדיף להתקדם מעט בכל יום מאשר להעמיס יותר מדי.",
-                encouragement: "כל צעד קטן באנגלית בונה ביטחון.",
-                estimatedMinutes: 15,
-            });
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        console.error("❌ AI Coach Gemini Error:", aiError.message || aiError);
 
-            await User.findByIdAndUpdate(userId, {
-                $push: {
-                    coachHistory: {
-                        note: note.trim(),
-                        plan: coachPlan,
-                        createdAt: new Date(),
-                    },
-                },
-            });
+        if (isRateLimitError(aiError)) {
+          const fallbackPlan = getCoachFallbackPlan();
 
-            return res.status(200).json({
-                success: true,
-                plan: coachPlan,
-            });
-        } catch (error) {
-            console.error("❌ AI Coach Error:", error.message || error);
-            next(error);
+          await User.findByIdAndUpdate(userId, {
+            $push: {
+              coachHistory: {
+                note: note.trim(),
+                plan: fallbackPlan,
+                createdAt: new Date(),
+              },
+            },
+          });
+
+          return res.status(200).json({
+            success: true,
+            plan: fallbackPlan,
+            fallback: true,
+            reason: "rate_limit",
+          });
         }
-    },
 
-    // קבלת היסטוריית המאמן של המשתמש
-    getCoachHistory: async (req, res, next) => {
-        try {
-            const userId = req.user.id;
+        throw aiError;
+      }
 
-            const user = await User.findById(userId).select("coachHistory").lean();
+      const coachPlan = parseAIJson(response.text, getCoachFallbackPlan());
 
-            if (!user) {
-                return res.status(404).json({
-                    success: false,
-                    message: "משתמש לא נמצא",
-                });
-            }
+      await User.findByIdAndUpdate(userId, {
+        $push: {
+          coachHistory: {
+            note: note.trim(),
+            plan: coachPlan,
+            createdAt: new Date(),
+          },
+        },
+      });
 
-            return res.status(200).json({
-                success: true,
-                history: (user.coachHistory || []).slice(-10).reverse(),
-            });
-        } catch (error) {
-            next(error);
-        }
-    },
+      return res.status(200).json({
+        success: true,
+        plan: coachPlan,
+      });
+    } catch (error) {
+      console.error("❌ AI Coach Error:", error.message || error);
+
+      return res.status(200).json({
+        success: true,
+        plan: getCoachFallbackPlan(),
+        fallback: true,
+        reason: "server_error",
+      });
+    }
+  },
+
+  // קבלת היסטוריית המאמן של המשתמש
+  getCoachHistory: async (req, res, next) => {
+    try {
+      const userId = req.user.id;
+
+      const user = await User.findById(userId).select("coachHistory").lean();
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "משתמש לא נמצא",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        history: (user.coachHistory || []).slice(-10).reverse(),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 export default AiController;
