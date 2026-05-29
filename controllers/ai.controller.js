@@ -99,6 +99,70 @@ export const AiController = {
             next(error);
         }
     },
+    // עוזר מילון אישי: תיקון כתיב, תרגום, הסבר ודוגמה
+    dictionaryHelper: async (req, res, next) => {
+        try {
+            const { text } = req.body;
+
+            if (!text || !text.trim()) {
+                return res.status(400).json({
+                    success: false,
+                    message: "נא להזין מילה או ביטוי באנגלית",
+                });
+            }
+
+            const cleanText = text.trim();
+
+            const prompt = `
+You are an English dictionary helper for Hebrew-speaking students.
+
+The student entered this English word or phrase:
+"${cleanText}"
+
+Your job:
+1. If the spelling is wrong, correct it.
+2. Translate it to Hebrew.
+3. Give a short English definition.
+4. Give one simple English example sentence.
+5. Tell if you corrected the input.
+
+Return strictly valid JSON only, no markdown.
+
+Return this exact structure:
+{
+  "originalInput": "${cleanText}",
+  "correctedWord": "correct English word or phrase",
+  "translation": "תרגום לעברית",
+  "definition": "Short English definition",
+  "example": "Simple English example sentence",
+  "wasCorrected": true
+}
+`;
+
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: { responseMimeType: "application/json" },
+            });
+
+            const result = parseAIJson(response.text, {
+                originalInput: cleanText,
+                correctedWord: cleanText,
+                translation: "",
+                definition: "",
+                example: "",
+                wasCorrected: false,
+            });
+
+            return res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            console.error("❌ Dictionary helper error:", error.message || error);
+            next(error);
+        }
+    },
 
     // תרגול שיחה באנגלית בלבד עם סינון נושא
     conversation: async (req, res, next) => {

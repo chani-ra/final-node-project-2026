@@ -13,6 +13,9 @@ router.post("/grammar-correct", AiController.correctGrammar);
 // תרגום טקסט
 router.post("/translate", AiController.translateText);
 
+// עזרה במילון - מציאת מילים דומות, הסברים וכו'
+router.post("/dictionary-helper", AiController.dictionaryHelper);
+
 // תרגול שיחה אמיתי מול AI
 router.post("/conversation", AiController.conversation);
 
