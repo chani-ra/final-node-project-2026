@@ -199,6 +199,26 @@ const userSchema = new Schema(
       type: Boolean,
       default: true,
     },
+    coachHistory: [
+  {
+    note: {
+      type: String,
+      trim: true,
+    },
+    plan: {
+      focus: String,
+      summary: String,
+      steps: [String],
+      tip: String,
+      encouragement: String,
+      estimatedMinutes: Number,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+],
 
     achievements: [
       {

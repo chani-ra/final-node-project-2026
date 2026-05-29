@@ -1,34 +1,43 @@
-import { Router } from 'express';
-import AiController from '../controllers/ai.controller.js'; // 👈 תיקון: ייבוא דיפולטיבי ללא סוגריים מסולסלים
-import { authenticateToken } from '../middlewares/auth.middleware.js';
+import { Router } from "express";
+import AiController from "../controllers/ai.controller.js";
+import { authenticateToken } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-// 🔒 כל ראוטי ה-AI דורשים אימות טוקן אוטומטית
+// כל ראוטי ה-AI דורשים משתמש מחובר
 router.use(authenticateToken);
 
-// 📝 1. בדיקת דקדוק
-router.post('/grammar-correct', AiController.correctGrammar);
+// תיקון דקדוק
+router.post("/grammar-correct", AiController.correctGrammar);
 
-// 🌐 2. תרגום טקסט (הפיצ'ר החדש!)
-router.post('/translate', AiController.translateText);
+// תרגום טקסט
+router.post("/translate", AiController.translateText);
 
-// 💬 3. תרגול שיחה
-router.post('/conversation', AiController.conversation);
+// תרגול שיחה אמיתי מול AI
+router.post("/conversation", AiController.conversation);
 
-// 🎯 4. יצירת תרגילים
-router.post('/generate-exercise', AiController.generateExercise);
+// יצירת תרגילים
+router.post("/generate-exercise", AiController.generateExercise);
 
-// ✍️ 5. בדיקת חיבור חופשי ומתן פידבק
-router.post('/check-essay', AiController.checkEssay); 
+// בדיקת חיבור ומתן פידבק
+router.post("/check-essay", AiController.checkEssay);
 
-// 💡 6. קבלת טיפים ללמידה
-router.get('/study-tips', AiController.getStudyTips);
+// קבלת טיפים ללמידה
+router.get("/study-tips", AiController.getStudyTips);
 
-// 🧠 7. יצירת בחן אמריקאי אוטומטי
-router.post('/generate-quiz', AiController.generateQuiz);
+// יצירת בחן אמריקאי אוטומטי
+router.post("/generate-quiz", AiController.generateQuiz);
 
-// 📈 8. יצירת תוכנית למידה אישית
-router.get('/learning-plan', AiController.generateLearningPlan);
+// יצירת תוכנית למידה כללית
+router.get("/learning-plan", AiController.generateLearningPlan);
+
+// מאמן אישי לתלמידה
+router.post("/coach", AiController.generateCoachPlan);
+
+// היסטוריית מאמן אישי
+router.get("/coach/history", AiController.getCoachHistory);
+
+// שמירת תוצאת בוחן
+router.post("/quiz-result", AiController.saveQuizResult);
 
 export default router;
