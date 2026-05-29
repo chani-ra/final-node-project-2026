@@ -395,58 +395,125 @@ Important rules:
     }
   },
 
-  // בדיקת חיבור
-  checkEssay: async (req, res, next) => {
-    try {
-      const { text, studentLevel } = req.body;
+ // בדיקת חיבור / כתיבה באנגלית
+checkEssay: async (req, res, next) => {
+  try {
+    const { text, studentLevel } = req.body;
 
-      if (!text) {
-        return res.status(400).json({
-          success: false,
-          message: "Text is required",
-        });
-      }
-
-      const prompt = `Review this essay (level ${studentLevel || "intermediate"}). Return JSON: {"score": 85, "generalFeedback": "...", "grammarCorrections": [{"mistake": "...", "correction": "...", "explanation": "..."}]}. Essay: "${text}"`;
-
-      let response;
-
-      try {
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: { responseMimeType: "application/json" },
-        });
-      } catch (aiError) {
-        if (isRateLimitError(aiError)) {
-          return res.status(200).json({
-            success: true,
-            data: {
-              score: 0,
-              generalFeedback:
-                "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות.",
-              grammarCorrections: [],
-            },
-          });
-        }
-
-        throw aiError;
-      }
-
-      const data = parseAIJson(response.text, {
-        score: 0,
-        generalFeedback: "לא הצלחנו לנתח את החיבור כרגע.",
-        grammarCorrections: [],
+    if (!text || !text.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Text is required",
       });
+    }
 
+    const cleanText = text.trim();
+
+    const prompt = `
+You are an English writing teacher for Hebrew-speaking students.
+
+Check the student's English writing.
+
+Student level: ${studentLevel || "intermediate"}
+
+Student writing:
+"${cleanText}"
+
+Return strictly valid JSON only, no markdown.
+
+Return this exact structure:
+{
+  "score": 85,
+  "generalFeedback": "משוב כללי בעברית, ברור ומעודד",
+  "grammarCorrections": [
+    {
+      "mistake": "wrong sentence or phrase",
+      "correction": "correct version",
+      "explanation": "הסבר קצר בעברית"
+    }
+  ]
+}
+
+Important:
+- The feedback must be in Hebrew.
+- Be kind and encouraging.
+- If there are no serious mistakes, return an empty grammarCorrections array.
+- Score should be between 0 and 100.
+`;
+
+    let response;
+
+    try {
+      response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { responseMimeType: "application/json" },
+      });
+    } catch (aiError) {
+      console.error("❌ Gemini checkEssay error:", aiError.message || aiError);
+
+      // אם זו מגבלת שימוש / עומס
+      if (isRateLimitError(aiError)) {
+        return res.status(200).json({
+          success: true,
+          fallback: true,
+          reason: "rate_limit",
+          data: {
+            score: 0,
+            generalFeedback:
+              "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות. בינתיים כדאי לבדוק שהמשפטים מתחילים באות גדולה, שיש נקודה בסוף משפט, ושהפועל מתאים לנושא.",
+            grammarCorrections: [],
+          },
+        });
+      }
+
+      // כל שגיאת AI אחרת — לא מפילים את האתר
       return res.status(200).json({
         success: true,
-        data,
+        fallback: true,
+        reason: "ai_unavailable",
+        data: {
+          score: 0,
+          generalFeedback:
+            "כרגע בדיקת הכתיבה אינה זמינה. נסי שוב בעוד רגע. בינתיים כדאי לקרוא את הפסקה בקול ולבדוק אם כל משפט ברור ושלם.",
+          grammarCorrections: [],
+        },
       });
-    } catch (error) {
-      next(error);
     }
-  },
+
+    const data = parseAIJson(response.text, {
+      score: 0,
+      generalFeedback: "לא הצלחנו לנתח את תשובת ה־AI כרגע.",
+      grammarCorrections: [],
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        score: Number(data.score) || 0,
+        generalFeedback:
+          data.generalFeedback || "לא התקבל משוב מפורט כרגע.",
+        grammarCorrections: Array.isArray(data.grammarCorrections)
+          ? data.grammarCorrections
+          : [],
+      },
+    });
+  } catch (error) {
+    console.error("❌ checkEssay controller error:", error.message || error);
+
+    return res.status(200).json({
+      success: true,
+      fallback: true,
+      reason: "server_error",
+      data: {
+        score: 0,
+        generalFeedback:
+          "אירעה תקלה זמנית בבדיקת הכתיבה. נסי שוב בעוד רגע.",
+        grammarCorrections: [],
+      },
+    });
+  }
+},
 
   // יצירת בחן אמריקאי
   generateQuiz: async (req, res, next) => {
