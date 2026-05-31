@@ -49,7 +49,8 @@ const getCoachFallbackPlan = () => {
       "כתבי משפט אחד באנגלית עם אחת מהמילים.",
     ],
     tip: "נסי שוב בעוד כמה דקות לקבלת תוכנית מותאמת אישית מה־AI.",
-    encouragement: "גם תרגול קצר בלי AI מקדם אותך. העיקר להמשיך בצעד קטן וברור.",
+    encouragement:
+      "גם תרגול קצר בלי AI מקדם אותך. העיקר להמשיך בצעד קטן וברור.",
     estimatedMinutes: 15,
   };
 };
@@ -65,7 +66,42 @@ const getConversationFallbackReply = () => {
   );
 };
 
+// מבנה גיבוי קבוע לתרגיל AI
+const getExerciseFallback = () => {
+  return {
+    title: "Vocabulary Practice",
+    description: "A short vocabulary exercise.",
+    instructions: "השלימי את המשפט בעזרת המילה המתאימה.",
+    questions: [
+      {
+        number: 1,
+        sentence: "I want to learn a new ___ today.",
+        options: ["word", "song", "lesson", "question"],
+        correctAnswer: "word",
+        hint: "בחרי מילה שמתאימה לתרגול אוצר מילים.",
+      },
+    ],
+  };
+};
 
+// מבנה גיבוי קבוע לבדיקת כתיבה
+const getEssayFallback = (reason = "unavailable") => {
+  const messages = {
+    rate_limit:
+      "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות. בינתיים כדאי לבדוק שהמשפטים מתחילים באות גדולה, שיש נקודה בסוף משפט, ושהפועל מתאים לנושא.",
+    ai_unavailable:
+      "כרגע בדיקת הכתיבה אינה זמינה. נסי שוב בעוד רגע. בינתיים כדאי לקרוא את הפסקה בקול ולבדוק אם כל משפט ברור ושלם.",
+    server_error:
+      "אירעה תקלה זמנית בבדיקת הכתיבה, ולכן לא ניתן ציון מדויק כרגע. הכיוון הכללי טוב, ונסי לשלוח שוב בעוד רגע כדי לקבל בדיקה מפורטת.",
+    parse_error: "לא הצלחנו לנתח את תשובת ה־AI כרגע.",
+  };
+
+  return {
+    score: 85,
+    generalFeedback: messages[reason] || messages.ai_unavailable,
+    grammarCorrections: [],
+  };
+};
 
 const normalizeBrainMapSkills = (skills = []) => {
   if (!Array.isArray(skills)) return [];
@@ -109,14 +145,31 @@ export const AiController = {
       const { text } = req.body;
       const userId = req.user.id;
 
-      if (!text) {
+      if (!text || !text.trim()) {
         return res.status(400).json({
           success: false,
           message: "Text is required",
         });
       }
 
-      const prompt = `You are an English teacher for Hebrew speakers. Correct the grammar and spelling. Return JSON: {"original": "${text}", "corrected": "...", "explanation": "הסבר בעברית"}. Text: "${text}"`;
+      const cleanText = text.trim();
+
+      const prompt = `
+You are an English teacher for Hebrew speakers.
+Correct the grammar and spelling.
+
+Student text:
+${JSON.stringify(cleanText)}
+
+Return strictly valid JSON only, no markdown.
+
+Return this exact structure:
+{
+  "original": "original text",
+  "corrected": "corrected text",
+  "explanation": "הסבר בעברית"
+}
+`;
 
       let response;
 
@@ -131,8 +184,8 @@ export const AiController = {
           return res.status(200).json({
             success: true,
             data: {
-              original: text,
-              corrected: text,
+              original: cleanText,
+              corrected: cleanText,
               explanation:
                 "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות.",
             },
@@ -143,8 +196,8 @@ export const AiController = {
       }
 
       const aiResult = parseAIJson(response.text, {
-        original: text,
-        corrected: text,
+        original: cleanText,
+        corrected: cleanText,
         explanation: "לא הצלחנו לנתח את תשובת ה-AI.",
       });
 
@@ -170,19 +223,21 @@ export const AiController = {
     try {
       const { text, targetLang = "Hebrew" } = req.body;
 
-      if (!text) {
+      if (!text || !text.trim()) {
         return res.status(400).json({
           success: false,
           message: "Text is required",
         });
       }
 
+      const cleanText = text.trim();
+
       let response;
 
       try {
         response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
-          contents: `Translate the following text into ${targetLang}. Return ONLY the translated text.\nText: "${text}"`,
+          contents: `Translate the following text into ${targetLang}. Return ONLY the translated text.\nText: ${JSON.stringify(cleanText)}`,
         });
       } catch (aiError) {
         if (isRateLimitError(aiError)) {
@@ -223,7 +278,7 @@ export const AiController = {
 You are an English dictionary helper for Hebrew-speaking students.
 
 The student entered this English word or phrase:
-"${cleanText}"
+${JSON.stringify(cleanText)}
 
 Your job:
 1. If the spelling is wrong, correct it.
@@ -236,7 +291,7 @@ Return strictly valid JSON only, no markdown.
 
 Return this exact structure:
 {
-  "originalInput": "${cleanText}",
+  "originalInput": "student original input",
   "correctedWord": "correct English word or phrase",
   "translation": "תרגום לעברית",
   "definition": "Short English definition",
@@ -261,8 +316,7 @@ Return this exact structure:
               originalInput: cleanText,
               correctedWord: cleanText,
               translation: "",
-              definition:
-                "AI is temporarily unavailable because of usage limits.",
+              definition: "ה־AI אינו זמין זמנית בגלל עומס או מגבלת שימוש.",
               example: "",
               wasCorrected: false,
             },
@@ -330,7 +384,7 @@ Your role:
 Student level: ${safeLevel}
 
 Student message:
-"${cleanMessage}"
+${JSON.stringify(cleanMessage)}
 
 Important rules:
 1. Stay focused only on English learning.
@@ -377,11 +431,7 @@ Important rules:
       });
     } catch (error) {
       console.error("❌ Conversation controller error:", error.message || error);
-
-      return res.status(500).json({
-        success: false,
-        message: "שגיאה בצ׳אט AI",
-      });
+      next(error);
     }
   },
 
@@ -394,7 +444,37 @@ Important rules:
       const finalLevel = level || "intermediate";
       const finalType = exerciseType || "vocabulary";
 
-      const aiPrompt = `Create a ${finalType} exercise about "${finalTopic}" for ${finalLevel} level. Return strictly as JSON array: [{"sentence": "...", "correctAnswer": "...", "hint": "..."}]`;
+      const aiPrompt = `
+You are an English teacher for Hebrew-speaking students.
+
+Create a ${finalType} exercise about "${finalTopic}" for ${finalLevel} level students.
+
+Return strictly valid JSON only. Do not use markdown.
+
+Return exactly this structure:
+{
+  "title": "Short attractive English title",
+  "description": "One short sentence explaining the goal of the exercise",
+  "instructions": "הוראות קצרות בעברית לתלמידה",
+  "questions": [
+    {
+      "number": 1,
+      "sentence": "English exercise sentence with a blank ___ if needed",
+      "options": ["option 1", "option 2", "option 3", "option 4"],
+      "correctAnswer": "the correct answer",
+      "hint": "Short helpful hint in Hebrew"
+    }
+  ]
+}
+
+Rules:
+1. Create exactly 5 questions.
+2. Number the questions from 1 to 5.
+3. Keep the English suitable for ${finalLevel} level.
+4. Make the exercise clear, friendly and classroom-ready.
+5. If the exercise type does not need options, return an empty options array.
+6. The explanation and hints should be in Hebrew.
+`;
 
       let response;
 
@@ -408,20 +488,14 @@ Important rules:
         if (isRateLimitError(aiError)) {
           return res.status(200).json({
             success: true,
-            data: [
-              {
-                sentence: "I want to learn a new ___ today.",
-                correctAnswer: "word",
-                hint: "Something you learn in vocabulary practice.",
-              },
-            ],
+            data: getExerciseFallback(),
           });
         }
 
         throw aiError;
       }
 
-      const data = parseAIJson(response.text, []);
+      const data = parseAIJson(response.text, getExerciseFallback());
 
       return res.status(200).json({
         success: true,
@@ -432,21 +506,21 @@ Important rules:
     }
   },
 
- // בדיקת חיבור / כתיבה באנגלית
-checkEssay: async (req, res, next) => {
-  try {
-    const { text, studentLevel } = req.body;
+  // בדיקת חיבור / כתיבה באנגלית
+  checkEssay: async (req, res, next) => {
+    try {
+      const { text, studentLevel } = req.body;
 
-    if (!text || !text.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Text is required",
-      });
-    }
+      if (!text || !text.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Text is required",
+        });
+      }
 
-    const cleanText = text.trim();
+      const cleanText = text.trim();
 
-    const prompt = `
+      const prompt = `
 You are an English writing teacher for Hebrew-speaking students.
 
 Check the student's English writing.
@@ -454,7 +528,7 @@ Check the student's English writing.
 Student level: ${studentLevel || "intermediate"}
 
 Student writing:
-"${cleanText}"
+${JSON.stringify(cleanText)}
 
 Return strictly valid JSON only, no markdown.
 
@@ -466,6 +540,9 @@ Return this exact structure:
     {
       "mistake": "wrong sentence or phrase",
       "correction": "correct version",
+      "type": "grammar | spelling | punctuation | capitalization | wording",
+      "severity": "serious | minor",
+      "affectsScore": true,
       "explanation": "הסבר קצר בעברית"
     }
   ]
@@ -473,9 +550,125 @@ Return this exact structure:
 
 Important:
 - The feedback must be in Hebrew.
-- Be kind and encouraging.
-- If there are no serious mistakes, return an empty grammarCorrections array.
+- Be kind, warm and encouraging.
+- The goal is to motivate the student and help her improve.
+- Judge the writing according to the student's level.
+- Mention what the student did well before mentioning mistakes.
+
+Scoring rules:
 - Score should be between 0 and 100.
+- The score should be educational and encouraging, not harsh.
+- In most normal cases, give a score between 75 and 95.
+- Serious grammar mistakes should lower the score.
+- Repeated serious grammar mistakes should lower the score more.
+- Minor spelling mistakes, missing letters, city names written incorrectly, punctuation mistakes, or capitalization mistakes should be mentioned gently but should not significantly lower the score.
+- Do not lower the score for small spelling mistakes unless they make the sentence hard to understand.
+- If the meaning is clear and the main grammar is good, keep the score encouraging.
+
+Correction rules:
+- If there are no serious mistakes, return an empty grammarCorrections array or include only minor notes.
+- In each correction, explain whether it is a serious grammar mistake or a minor spelling/writing mistake.
+- If the mistake is minor, say clearly in Hebrew that it is a small note and should not hurt the grade much.
+`;
+
+      let response;
+
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        console.error("❌ Gemini checkEssay error:", aiError.message || aiError);
+
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            fallback: true,
+            reason: "rate_limit",
+            data: getEssayFallback("rate_limit"),
+          });
+        }
+
+        return res.status(200).json({
+          success: true,
+          fallback: true,
+          reason: "ai_unavailable",
+          data: getEssayFallback("ai_unavailable"),
+        });
+      }
+
+      const data = parseAIJson(response.text, getEssayFallback("parse_error"));
+
+      const safeScore =
+        typeof data.score === "number" && data.score >= 0 && data.score <= 100
+          ? data.score
+          : Number(data.score) >= 0 && Number(data.score) <= 100
+          ? Number(data.score)
+          : 85;
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          score: safeScore,
+          generalFeedback:
+            data.generalFeedback ||
+            "בדקתי את הכתיבה שלך. יש כמה נקודות לשיפור, אבל הכיוון טוב.",
+          grammarCorrections: Array.isArray(data.grammarCorrections)
+            ? data.grammarCorrections
+            : [],
+        },
+      });
+    } catch (error) {
+      console.error("❌ checkEssay controller error:", error.message || error);
+
+      return res.status(200).json({
+        success: true,
+        fallback: true,
+        reason: "server_error",
+        data: getEssayFallback("server_error"),
+      });
+    }
+  },
+
+ // יצירת בחן אמריקאי
+generateQuiz: async (req, res, next) => {
+  try {
+    const { topic, difficulty, questionCount } = req.body;
+
+    const finalTopic = topic || "English";
+    const finalDifficulty = difficulty || "intermediate";
+    const finalQuestionCount = questionCount || 5;
+
+    const prompt = `
+You are an English teacher for Hebrew-speaking students.
+
+Create a multiple-choice quiz about "${finalTopic}" for ${finalDifficulty} level students.
+
+Generate exactly ${finalQuestionCount} questions.
+
+Return strictly valid JSON only. Do not use markdown.
+
+Return exactly this structure:
+[
+  {
+    "number": 1,
+    "question": "Question text in English",
+    "options": ["option 1", "option 2", "option 3", "option 4"],
+    "correctAnswer": "The exact correct option",
+    "explanation": "הסבר קצר בעברית למה זו התשובה הנכונה"
+  }
+]
+
+Rules:
+1. Each question must have exactly 4 options.
+2. The correctAnswer must be exactly one of the options.
+3. Questions should match the student's level.
+4. Explanations must be in Hebrew.
+5. Number the questions from 1 to ${finalQuestionCount}.
+6. Keep the quiz focused on the topic: "${finalTopic}".
+7. Make the wrong options reasonable but clearly incorrect.
 `;
 
     let response;
@@ -487,122 +680,54 @@ Important:
         config: { responseMimeType: "application/json" },
       });
     } catch (aiError) {
-      console.error("❌ Gemini checkEssay error:", aiError.message || aiError);
-
-      // אם זו מגבלת שימוש / עומס
       if (isRateLimitError(aiError)) {
         return res.status(200).json({
           success: true,
-          fallback: true,
-          reason: "rate_limit",
-          data: {
-            score: 0,
-            generalFeedback:
-              "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות. בינתיים כדאי לבדוק שהמשפטים מתחילים באות גדולה, שיש נקודה בסוף משפט, ושהפועל מתאים לנושא.",
-            grammarCorrections: [],
-          },
+          questions: [
+            {
+              number: 1,
+              question: "What is the correct sentence?",
+              options: [
+                "She go to school.",
+                "She goes to school.",
+                "She going to school.",
+                "She gone to school.",
+              ],
+              correctAnswer: "She goes to school.",
+              explanation:
+                "ב־Present Simple מוסיפים s לפועל כאשר הנושא הוא she, he או it.",
+            },
+          ],
         });
       }
 
-      // כל שגיאת AI אחרת — לא מפילים את האתר
-      return res.status(200).json({
-        success: true,
-        fallback: true,
-        reason: "ai_unavailable",
-        data: {
-          score: 0,
-          generalFeedback:
-            "כרגע בדיקת הכתיבה אינה זמינה. נסי שוב בעוד רגע. בינתיים כדאי לקרוא את הפסקה בקול ולבדוק אם כל משפט ברור ושלם.",
-          grammarCorrections: [],
-        },
-      });
+      throw aiError;
     }
 
-    const data = parseAIJson(response.text, {
-      score: 0,
-      generalFeedback: "לא הצלחנו לנתח את תשובת ה־AI כרגע.",
-      grammarCorrections: [],
-    });
+    const questions = parseAIJson(response.text, [
+      {
+        number: 1,
+        question: "What is the correct sentence?",
+        options: [
+          "She go to school.",
+          "She goes to school.",
+          "She going to school.",
+          "She gone to school.",
+        ],
+        correctAnswer: "She goes to school.",
+        explanation:
+          "ב־Present Simple מוסיפים s לפועל כאשר הנושא הוא she, he או it.",
+      },
+    ]);
 
     return res.status(200).json({
       success: true,
-      data: {
-        score: Number(data.score) || 0,
-        generalFeedback:
-          data.generalFeedback || "לא התקבל משוב מפורט כרגע.",
-        grammarCorrections: Array.isArray(data.grammarCorrections)
-          ? data.grammarCorrections
-          : [],
-      },
+      questions,
     });
   } catch (error) {
-    console.error("❌ checkEssay controller error:", error.message || error);
-
-    return res.status(200).json({
-      success: true,
-      fallback: true,
-      reason: "server_error",
-      data: {
-        score: 0,
-        generalFeedback:
-          "אירעה תקלה זמנית בבדיקת הכתיבה. נסי שוב בעוד רגע.",
-        grammarCorrections: [],
-      },
-    });
+    next(error);
   }
 },
-
-  // יצירת בחן אמריקאי
-  generateQuiz: async (req, res, next) => {
-    try {
-      const { topic, difficulty, questionCount } = req.body;
-
-      const prompt = `Create a quiz about "${topic || "English"}" at ${
-        difficulty || "intermediate"
-      } difficulty. Generate ${
-        questionCount || 5
-      } questions. Return JSON array: [{"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "..."}]`;
-
-      let response;
-
-      try {
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: { responseMimeType: "application/json" },
-        });
-      } catch (aiError) {
-        if (isRateLimitError(aiError)) {
-          return res.status(200).json({
-            success: true,
-            questions: [
-              {
-                question: "What is the correct sentence?",
-                options: [
-                  "She go to school.",
-                  "She goes to school.",
-                  "She going to school.",
-                  "She gone to school.",
-                ],
-                correctAnswer: "She goes to school.",
-              },
-            ],
-          });
-        }
-
-        throw aiError;
-      }
-
-      const questions = parseAIJson(response.text, []);
-
-      return res.status(200).json({
-        success: true,
-        questions,
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
 
   // שמירת תוצאות בוחן
   saveQuizResult: async (req, res, next) => {
@@ -633,10 +758,14 @@ Important:
   // יצירת תוכנית למידה כללית
   generateLearningPlan: async (req, res, next) => {
     try {
-      const prompt = `Generate a 4-week study schedule.
+      const prompt = `
+Generate a 4-week study schedule.
 Important: the text must be in Hebrew.
 Add feedback and wishes at the end of the plan.
-Return JSON array: [{"week": 1, "focus": "...", "tasks": ["..."]}].`;
+
+Return strictly valid JSON only, no markdown.
+Return JSON array: [{"week": 1, "focus": "...", "tasks": ["..."]}].
+`;
 
       let response;
 
@@ -684,11 +813,13 @@ Return JSON array: [{"week": 1, "focus": "...", "tasks": ["..."]}].`;
     try {
       const { level, focusArea } = req.query;
 
-      const prompt = `Provide 3 study tips for level ${
-        level || "intermediate"
-      } in ${focusArea || "general"}.
+      const prompt = `
+Provide 3 study tips for level ${level || "intermediate"} in ${focusArea || "general"}.
 Important: The explanation must be in Hebrew and in English.
-Return JSON array of strings.`;
+
+Return strictly valid JSON only, no markdown.
+Return JSON array of strings.
+`;
 
       let response;
 
@@ -725,16 +856,16 @@ Return JSON array of strings.`;
   },
 
   // יצירת מפת יכולות חכמה לתלמידה
-generateBrainMap: async (req, res) => {
-  try {
-    const {
-      level = "beginner",
-      stats = {},
-      localSkills = [],
-      latestConversation = "",
-    } = req.body;
+  generateBrainMap: async (req, res) => {
+    try {
+      const {
+        level = "beginner",
+        stats = {},
+        localSkills = [],
+        latestConversation = "",
+      } = req.body;
 
-    const prompt = `
+      const prompt = `
 You are an expert English learning analyst for Hebrew-speaking students.
 
 Create a smart English skill map based on the student's activity.
@@ -749,7 +880,7 @@ Local calculated skills:
 ${JSON.stringify(localSkills, null, 2)}
 
 Latest conversation snippet:
-"${latestConversation}"
+${JSON.stringify(latestConversation)}
 
 Return strictly valid JSON only. No markdown.
 
@@ -807,87 +938,87 @@ Rules:
 - If there is not enough data, say that the map is an initial estimate.
 `;
 
-    let response;
+      let response;
 
-    try {
-      response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: { responseMimeType: "application/json" },
-      });
-    } catch (aiError) {
-      console.error("❌ Brain Map AI error:", aiError.message || aiError);
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        });
+      } catch (aiError) {
+        console.error("❌ Brain Map AI error:", aiError.message || aiError);
 
-      if (isRateLimitError(aiError)) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            fallback: true,
+            reason: "rate_limit",
+            brainMap: {
+              summary:
+                "כרגע ה־AI עמוס, לכן מוצגת מפת יכולות מקומית לפי הנתונים הקיימים.",
+              strongestSkill: "",
+              weakestSkill: "",
+              recommendation:
+                "אפשר להמשיך ללמוד כרגיל, ולנסות לשדרג את המפה עם AI בעוד כמה דקות.",
+              skills: normalizeBrainMapSkills(localSkills),
+            },
+          });
+        }
+
         return res.status(200).json({
           success: true,
           fallback: true,
-          reason: "rate_limit",
+          reason: "ai_unavailable",
           brainMap: {
             summary:
-              "כרגע ה־AI עמוס, לכן מוצגת מפת יכולות מקומית לפי הנתונים הקיימים.",
+              "כרגע ניתוח ה־AI אינו זמין, לכן מוצגת מפת יכולות מקומית.",
             strongestSkill: "",
             weakestSkill: "",
             recommendation:
-              "אפשר להמשיך ללמוד כרגיל, ולנסות לשדרג את המפה עם AI בעוד כמה דקות.",
+              "המשיכי לעבוד לפי המדריך החכם, המשימות והמילון האישי.",
             skills: normalizeBrainMapSkills(localSkills),
           },
         });
       }
 
-      return res.status(200).json({
-        success: true,
-        fallback: true,
-        reason: "ai_unavailable",
-        brainMap: {
-          summary:
-            "כרגע ניתוח ה־AI אינו זמין, לכן מוצגת מפת יכולות מקומית.",
-          strongestSkill: "",
-          weakestSkill: "",
-          recommendation:
-            "המשיכי לעבוד לפי המדריך החכם, המשימות והמילון האישי.",
-          skills: normalizeBrainMapSkills(localSkills),
-        },
-      });
-    }
-
-    const brainMap = parseAIJson(response.text, {
-      summary: "לא הצלחנו לנתח את מפת היכולות כרגע.",
-      strongestSkill: "",
-      weakestSkill: "",
-      recommendation: "נסי לרענן שוב בעוד רגע.",
-      skills: normalizeBrainMapSkills(localSkills),
-    });
-
-    return res.status(200).json({
-      success: true,
-      brainMap: {
-        summary:
-          brainMap.summary || "מפת היכולות נבנתה לפי נתוני הלמידה שלך.",
-        strongestSkill: brainMap.strongestSkill || "",
-        weakestSkill: brainMap.weakestSkill || "",
-        recommendation:
-          brainMap.recommendation || "בחרי תחום אחד קטן לחיזוק היום.",
-        skills: normalizeBrainMapSkills(brainMap.skills || localSkills),
-      },
-    });
-  } catch (error) {
-    console.error("❌ Brain Map controller error:", error.message || error);
-
-    return res.status(200).json({
-      success: true,
-      fallback: true,
-      reason: "server_error",
-      brainMap: {
-        summary: "אירעה תקלה זמנית בבניית מפת היכולות.",
+      const brainMap = parseAIJson(response.text, {
+        summary: "לא הצלחנו לנתח את מפת היכולות כרגע.",
         strongestSkill: "",
         weakestSkill: "",
         recommendation: "נסי לרענן שוב בעוד רגע.",
-        skills: [],
-      },
-    });
-  }
-},
+        skills: normalizeBrainMapSkills(localSkills),
+      });
+
+      return res.status(200).json({
+        success: true,
+        brainMap: {
+          summary:
+            brainMap.summary || "מפת היכולות נבנתה לפי נתוני הלמידה שלך.",
+          strongestSkill: brainMap.strongestSkill || "",
+          weakestSkill: brainMap.weakestSkill || "",
+          recommendation:
+            brainMap.recommendation || "בחרי תחום אחד קטן לחיזוק היום.",
+          skills: normalizeBrainMapSkills(brainMap.skills || localSkills),
+        },
+      });
+    } catch (error) {
+      console.error("❌ Brain Map controller error:", error.message || error);
+
+      return res.status(200).json({
+        success: true,
+        fallback: true,
+        reason: "server_error",
+        brainMap: {
+          summary: "אירעה תקלה זמנית בבניית מפת היכולות.",
+          strongestSkill: "",
+          weakestSkill: "",
+          recommendation: "נסי לרענן שוב בעוד רגע.",
+          skills: [],
+        },
+      });
+    }
+  },
 
   // מאמן למידה אישי לתלמידה
   generateCoachPlan: async (req, res, next) => {

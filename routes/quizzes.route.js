@@ -1,22 +1,38 @@
-import { Router } from 'express';
-import { QuizController } from '../controllers/quiz.controller.js';
-import { authenticateToken, requireTeacher } from '../middlewares/auth.middleware.js';
+import { Router } from "express";
+import { authenticateToken } from "../middlewares/auth.middleware.js";
+import { QuizController } from "../controllers/quiz.controller.js";
 
 const router = Router();
 
-// ➕ יצירת בחן לקורס (רק מורים)
-router.post('/create', authenticateToken, requireTeacher, QuizController.createQuiz);
+router.use(authenticateToken);
 
-// 📖 קבלת בחנים של קורס ספציפי (תלמידים רשומים + מורים)
-router.get('/course/:courseId', authenticateToken, QuizController.getQuizzesByCourse);
+// מורה יוצרת בוחן
+router.post("/", QuizController.createQuiz);
 
-// 📝 הגשת בחן (תלמידים רשומים)
-router.post('/:quizId/submit', authenticateToken, QuizController.submitQuiz);
+// בחנים של קורס
+router.get("/course/:courseId", QuizController.getQuizzesByCourse);
 
-// 📊 קבלת תוצאות הבחנים של המשתמש
-router.get('/results/my', authenticateToken, QuizController.getUserQuizResults);
+// תוצאות בחנים של תלמידה
+router.get("/my-results", QuizController.getUserQuizResults);
 
-// 👨‍🏫 קבלת בחנים של מורה
-router.get('/teacher/my', authenticateToken, requireTeacher, QuizController.getTeacherQuizzes);
+// בחנים של מורה
+router.get("/teacher/my", QuizController.getTeacherQuizzes);
+
+// בוחן יחיד לפי מזהה
+// חשוב: חייב להיות אחרי /my-results ו-/teacher/my
+// כדי ש-Express לא יחשוב ש-"my-results" הוא quizId
+router.get("/:quizId", QuizController.getQuizById);
+
+// עריכת בוחן
+router.put("/:quizId", QuizController.updateQuiz);
+
+// פרסום / החזרה לטיוטה של בוחן
+router.patch("/:quizId/publish", QuizController.updateQuizPublishStatus);
+
+// מחיקת בוחן
+router.delete("/:quizId", QuizController.deleteQuiz);
+
+// הגשת בוחן
+router.post("/:quizId/submit", QuizController.submitQuiz);
 
 export default router;
