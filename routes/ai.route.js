@@ -34,6 +34,9 @@ router.post("/generate-quiz", AiController.generateQuiz);
 // יצירת תוכנית למידה כללית
 router.get("/learning-plan", AiController.generateLearningPlan);
 
+// יצירת מפוי מוחי ללמידה 
+router.post("/brain-map", AiController.generateBrainMap);
+
 // מאמן אישי לתלמידה
 router.post("/coach", AiController.generateCoachPlan);
 

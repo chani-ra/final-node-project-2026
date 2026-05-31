@@ -65,6 +65,43 @@ const getConversationFallbackReply = () => {
   );
 };
 
+
+
+const normalizeBrainMapSkills = (skills = []) => {
+  if (!Array.isArray(skills)) return [];
+
+  const allowedKeys = [
+    "vocabulary",
+    "grammar",
+    "writing",
+    "speaking",
+    "listening",
+    "confidence",
+  ];
+
+  return skills
+    .filter((skill) => skill && allowedKeys.includes(skill.key))
+    .map((skill) => ({
+      key: skill.key,
+      label: skill.label || getBrainSkillLabel(skill.key),
+      score: Math.max(0, Math.min(100, Math.round(Number(skill.score) || 0))),
+      reason: skill.reason || "הציון מבוסס על נתוני הפעילות במערכת.",
+    }));
+};
+
+const getBrainSkillLabel = (key) => {
+  const labels = {
+    vocabulary: "אוצר מילים",
+    grammar: "דקדוק",
+    writing: "כתיבה",
+    speaking: "דיבור",
+    listening: "שמיעה",
+    confidence: "ביטחון",
+  };
+
+  return labels[key] || key;
+};
+
 export const AiController = {
   // תיקון דקדוק + שמירה ל-DB
   correctGrammar: async (req, res, next) => {
@@ -686,6 +723,171 @@ Return JSON array of strings.`;
       next(error);
     }
   },
+
+  // יצירת מפת יכולות חכמה לתלמידה
+generateBrainMap: async (req, res) => {
+  try {
+    const {
+      level = "beginner",
+      stats = {},
+      localSkills = [],
+      latestConversation = "",
+    } = req.body;
+
+    const prompt = `
+You are an expert English learning analyst for Hebrew-speaking students.
+
+Create a smart English skill map based on the student's activity.
+
+Student level:
+${level}
+
+System stats:
+${JSON.stringify(stats, null, 2)}
+
+Local calculated skills:
+${JSON.stringify(localSkills, null, 2)}
+
+Latest conversation snippet:
+"${latestConversation}"
+
+Return strictly valid JSON only. No markdown.
+
+Return this exact structure:
+{
+  "summary": "סיכום קצר בעברית על מצב התלמידה",
+  "strongestSkill": "Vocabulary",
+  "weakestSkill": "Grammar",
+  "recommendation": "המלצה קצרה בעברית מה כדאי לעשות עכשיו",
+  "skills": [
+    {
+      "key": "vocabulary",
+      "label": "אוצר מילים",
+      "score": 72,
+      "reason": "הסבר קצר בעברית"
+    },
+    {
+      "key": "grammar",
+      "label": "דקדוק",
+      "score": 48,
+      "reason": "הסבר קצר בעברית"
+    },
+    {
+      "key": "writing",
+      "label": "כתיבה",
+      "score": 63,
+      "reason": "הסבר קצר בעברית"
+    },
+    {
+      "key": "speaking",
+      "label": "דיבור",
+      "score": 55,
+      "reason": "הסבר קצר בעברית"
+    },
+    {
+      "key": "listening",
+      "label": "שמיעה",
+      "score": 50,
+      "reason": "הסבר קצר בעברית"
+    },
+    {
+      "key": "confidence",
+      "label": "ביטחון",
+      "score": 58,
+      "reason": "הסבר קצר בעברית"
+    }
+  ]
+}
+
+Rules:
+- Score must be between 0 and 100.
+- Keep Hebrew warm, clear and practical.
+- Use the given stats.
+- Do not invent impossible data.
+- If there is not enough data, say that the map is an initial estimate.
+`;
+
+    let response;
+
+    try {
+      response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { responseMimeType: "application/json" },
+      });
+    } catch (aiError) {
+      console.error("❌ Brain Map AI error:", aiError.message || aiError);
+
+      if (isRateLimitError(aiError)) {
+        return res.status(200).json({
+          success: true,
+          fallback: true,
+          reason: "rate_limit",
+          brainMap: {
+            summary:
+              "כרגע ה־AI עמוס, לכן מוצגת מפת יכולות מקומית לפי הנתונים הקיימים.",
+            strongestSkill: "",
+            weakestSkill: "",
+            recommendation:
+              "אפשר להמשיך ללמוד כרגיל, ולנסות לשדרג את המפה עם AI בעוד כמה דקות.",
+            skills: normalizeBrainMapSkills(localSkills),
+          },
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        fallback: true,
+        reason: "ai_unavailable",
+        brainMap: {
+          summary:
+            "כרגע ניתוח ה־AI אינו זמין, לכן מוצגת מפת יכולות מקומית.",
+          strongestSkill: "",
+          weakestSkill: "",
+          recommendation:
+            "המשיכי לעבוד לפי המדריך החכם, המשימות והמילון האישי.",
+          skills: normalizeBrainMapSkills(localSkills),
+        },
+      });
+    }
+
+    const brainMap = parseAIJson(response.text, {
+      summary: "לא הצלחנו לנתח את מפת היכולות כרגע.",
+      strongestSkill: "",
+      weakestSkill: "",
+      recommendation: "נסי לרענן שוב בעוד רגע.",
+      skills: normalizeBrainMapSkills(localSkills),
+    });
+
+    return res.status(200).json({
+      success: true,
+      brainMap: {
+        summary:
+          brainMap.summary || "מפת היכולות נבנתה לפי נתוני הלמידה שלך.",
+        strongestSkill: brainMap.strongestSkill || "",
+        weakestSkill: brainMap.weakestSkill || "",
+        recommendation:
+          brainMap.recommendation || "בחרי תחום אחד קטן לחיזוק היום.",
+        skills: normalizeBrainMapSkills(brainMap.skills || localSkills),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Brain Map controller error:", error.message || error);
+
+    return res.status(200).json({
+      success: true,
+      fallback: true,
+      reason: "server_error",
+      brainMap: {
+        summary: "אירעה תקלה זמנית בבניית מפת היכולות.",
+        strongestSkill: "",
+        weakestSkill: "",
+        recommendation: "נסי לרענן שוב בעוד רגע.",
+        skills: [],
+      },
+    });
+  }
+},
 
   // מאמן למידה אישי לתלמידה
   generateCoachPlan: async (req, res, next) => {
