@@ -12,11 +12,30 @@ const categoryByExpectation = {
   confidence: "conversation",
 };
 
+const levelAliases = {
+  beginner: ["beginner", "מתחילים", "בסיס"],
+  intermediate: ["intermediate", "בינוני", "ביניים"],
+  advanced: ["advanced", "מתקדמים"],
+};
+
 const normalizeLevel = (level) => {
-  if (level === "מתחילים") return "beginner";
-  if (level === "בינוני") return "intermediate";
-  if (level === "מתקדמים") return "advanced";
-  return level;
+  const map = {
+    beginner: "beginner",
+    intermediate: "intermediate",
+    advanced: "advanced",
+    מתחילים: "beginner",
+    בסיס: "beginner",
+    בינוני: "intermediate",
+    ביניים: "intermediate",
+    מתקדמים: "advanced",
+  };
+
+  return map[level] || "beginner";
+};
+
+const getLevelAliases = (level) => {
+  const normalizedLevel = normalizeLevel(level);
+  return levelAliases[normalizedLevel] || ["beginner", "מתחילים", "בסיס"];
 };
 
 const getMainCategoryFromUser = (user) => {
@@ -48,7 +67,12 @@ const scoreItemForUser = (item, user) => {
   const itemLevel = normalizeLevel(item.level || item.englishLevel);
   const userLevel = normalizeLevel(user.englishLevel);
 
-  if (itemLevel === userLevel) score += 40;
+  // חשוב: אם הרמה לא תואמת — לא מכניסים בכלל.
+  if (itemLevel !== userLevel) {
+    return 0;
+  }
+
+  score += 50;
 
   if (ageMatches(item, user.age)) score += 20;
 
@@ -77,22 +101,22 @@ const sortByBestMatch = (items, user) => {
     .map((entry) => entry.item);
 };
 
-const buildBaseQuery = (user) => {
+const buildLevelQuery = (user, fieldName = "level") => {
+  const aliases = getLevelAliases(user.englishLevel);
+
   return {
     isPublic: true,
-    $or: [
-      { level: user.englishLevel },
-      { level: "מתחילים" },
-      { level: { $exists: false } },
-    ],
+    [fieldName]: { $in: aliases },
   };
 };
 
 const buildQuizQuery = (user) => {
+  const aliases = getLevelAliases(user.englishLevel);
+
   return {
     isPublic: true,
     isActive: true,
-    englishLevel: user.englishLevel,
+    englishLevel: { $in: aliases },
   };
 };
 
@@ -105,11 +129,11 @@ const createReason = (selected, isRefresh = false) => {
 
   if (total > 0) {
     return isRefresh
-      ? `המסלול רוענן ונמצאו ${total} פריטי תוכן שיכולים להתאים לרמה, לתחביבים ולמטרות הלמידה.`
+      ? `המסלול רוענן ונמצאו ${total} פריטי תוכן שמתאימים לרמת הקורס, לתחביבים ולמטרות הלמידה.`
       : "הקורס הורכב מתוך תכנים קיימים במערכת שנמצאו מתאימים לרמה, גיל, תחביבים ומטרות הלמידה של התלמיד.";
   }
 
-  return "עדיין לא נמצאו במערכת שיעורים/שירים/תרגילים/בחנים מותאמים מספיק. כאשר מורים יעלו תכנים מתאימים, ניתן יהיה לרענן את המסלול.";
+  return "עדיין לא נמצאו במערכת שיעורים/שירים/תרגילים/בחנים שמתאימים מספיק לרמה שבחרת. כאשר מורים יעלו תכנים מתאימים, ניתן יהיה לרענן את המסלול.";
 };
 
 const addUniqueItems = (currentIds = [], newItems = []) => {
@@ -129,18 +153,26 @@ const createCourseTitle = (user, preferences = {}) => {
     advanced: "מתקדמים",
   };
 
-  const level = levelLabels[preferences.englishLevel || user.englishLevel] || "מותאם";
+  const normalizedLevel = normalizeLevel(
+    preferences.englishLevel || user.englishLevel
+  );
+
+  const level = levelLabels[normalizedLevel] || "מותאם";
 
   return `מסלול אישי נוסף - ${level}`;
 };
 
 const mergeUserWithPreferences = (user, preferences = {}) => {
+  const userObject = user.toObject?.() || user;
+
   return {
-    ...user.toObject?.() || user,
+    ...userObject,
     _id: user._id,
     username: user.username,
     age: user.age,
-    englishLevel: preferences.englishLevel || user.englishLevel || "beginner",
+    englishLevel: normalizeLevel(
+      preferences.englishLevel || user.englishLevel || "beginner"
+    ),
     favoriteHobbies:
       preferences.favoriteHobbies && preferences.favoriteHobbies.length > 0
         ? preferences.favoriteHobbies
@@ -154,20 +186,23 @@ const mergeUserWithPreferences = (user, preferences = {}) => {
 
 const PersonalizedCourseService = {
   findMatchingContent: async (user) => {
-    const baseQuery = buildBaseQuery(user);
+    const userForQuery = {
+      ...user,
+      englishLevel: normalizeLevel(user.englishLevel),
+    };
 
     const [lessons, songs, exercises, quizzes] = await Promise.all([
-      Lesson.find(baseQuery).limit(80),
-      Song.find(baseQuery).limit(80),
-      Exercise.find(baseQuery).limit(80),
-      Quiz.find(buildQuizQuery(user)).limit(80),
+      Lesson.find(buildLevelQuery(userForQuery, "level")).limit(80),
+      Song.find(buildLevelQuery(userForQuery, "level")).limit(80),
+      Exercise.find(buildLevelQuery(userForQuery, "level")).limit(80),
+      Quiz.find(buildQuizQuery(userForQuery)).limit(80),
     ]);
 
     return {
-      lessons: sortByBestMatch(lessons, user).slice(0, 5),
-      songs: sortByBestMatch(songs, user).slice(0, 3),
-      exercises: sortByBestMatch(exercises, user).slice(0, 5),
-      quizzes: sortByBestMatch(quizzes, user).slice(0, 2),
+      lessons: sortByBestMatch(lessons, userForQuery).slice(0, 5),
+      songs: sortByBestMatch(songs, userForQuery).slice(0, 3),
+      exercises: sortByBestMatch(exercises, userForQuery).slice(0, 5),
+      quizzes: sortByBestMatch(quizzes, userForQuery).slice(0, 2),
     };
   },
 
@@ -181,11 +216,16 @@ const PersonalizedCourseService = {
     const mainCategory = getMainCategoryFromUser(userForMatching);
     const aiReason = createReason(selected, false);
 
+    const courseLevel = normalizeLevel(userForMatching.englishLevel);
+
     const course = new Course({
       title:
         preferences.customTitle?.trim() ||
         (preferences.isAdditionalCourse
-          ? createCourseTitle(user, preferences)
+          ? createCourseTitle(user, {
+              ...preferences,
+              englishLevel: courseLevel,
+            })
           : `המסלול האישי של ${user.username}`),
 
       description:
@@ -195,7 +235,9 @@ const PersonalizedCourseService = {
       createdByAI: true,
       aiReason,
       category: mainCategory,
-      level: userForMatching.englishLevel || "beginner",
+
+      // השדה המרכזי אצלך בקורסים
+      level: courseLevel,
 
       lessons: selected.lessons.map((lesson) => lesson._id),
       songs: selected.songs.map((song) => song._id),
@@ -216,6 +258,7 @@ const PersonalizedCourseService = {
       completedLessons: [],
       completedExercises: [],
       completedSongs: [],
+      completedQuizzes: [],
       startedAt: new Date(),
       lastAccessedAt: new Date(),
     });
@@ -240,6 +283,7 @@ const PersonalizedCourseService = {
       user,
       {
         ...preferences,
+        englishLevel: normalizeLevel(preferences.englishLevel),
         isAdditionalCourse: true,
       }
     );
@@ -268,7 +312,18 @@ const PersonalizedCourseService = {
       throw new Error("אין לך הרשאה לרענן את הקורס הזה");
     }
 
-    const selected = await PersonalizedCourseService.findMatchingContent(user);
+    // חשוב:
+    // רענון קורס צריך להשתמש ברמת הקורס, לא ברמת המשתמש הנוכחית.
+    // אחרת תלמידה שהתקדמה לרמה גבוהה יותר עלולה להכניס תכנים מתקדמים לקורס מתחילים.
+    const userForMatching = mergeUserWithPreferences(user, {
+      englishLevel: course.level || user.englishLevel || "beginner",
+      favoriteHobbies: user.favoriteHobbies || [],
+      expectations: user.expectations || [],
+    });
+
+    const selected = await PersonalizedCourseService.findMatchingContent(
+      userForMatching
+    );
 
     course.lessons = addUniqueItems(course.lessons, selected.lessons);
     course.songs = addUniqueItems(course.songs, selected.songs);
