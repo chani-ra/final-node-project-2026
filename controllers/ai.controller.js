@@ -605,8 +605,8 @@ Correction rules:
         typeof data.score === "number" && data.score >= 0 && data.score <= 100
           ? data.score
           : Number(data.score) >= 0 && Number(data.score) <= 100
-          ? Number(data.score)
-          : 85;
+            ? Number(data.score)
+            : 85;
 
       return res.status(200).json({
         success: true,
@@ -632,16 +632,16 @@ Correction rules:
     }
   },
 
- // יצירת בחן אמריקאי
-generateQuiz: async (req, res, next) => {
-  try {
-    const { topic, difficulty, questionCount } = req.body;
+  // יצירת בחן אמריקאי
+  generateQuiz: async (req, res, next) => {
+    try {
+      const { topic, difficulty, questionCount } = req.body;
 
-    const finalTopic = topic || "English";
-    const finalDifficulty = difficulty || "intermediate";
-    const finalQuestionCount = questionCount || 5;
+      const finalTopic = topic || "English";
+      const finalDifficulty = difficulty || "intermediate";
+      const finalQuestionCount = questionCount || 5;
 
-    const prompt = `
+      const prompt = `
 You are an English teacher for Hebrew-speaking students.
 
 Create a multiple-choice quiz about "${finalTopic}" for ${finalDifficulty} level students.
@@ -671,63 +671,63 @@ Rules:
 7. Make the wrong options reasonable but clearly incorrect.
 `;
 
-    let response;
+      let response;
 
-    try {
-      response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: { responseMimeType: "application/json" },
-      });
-    } catch (aiError) {
-      if (isRateLimitError(aiError)) {
-        return res.status(200).json({
-          success: true,
-          questions: [
-            {
-              number: 1,
-              question: "What is the correct sentence?",
-              options: [
-                "She go to school.",
-                "She goes to school.",
-                "She going to school.",
-                "She gone to school.",
-              ],
-              correctAnswer: "She goes to school.",
-              explanation:
-                "ב־Present Simple מוסיפים s לפועל כאשר הנושא הוא she, he או it.",
-            },
-          ],
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
         });
+      } catch (aiError) {
+        if (isRateLimitError(aiError)) {
+          return res.status(200).json({
+            success: true,
+            questions: [
+              {
+                number: 1,
+                question: "What is the correct sentence?",
+                options: [
+                  "She go to school.",
+                  "She goes to school.",
+                  "She going to school.",
+                  "She gone to school.",
+                ],
+                correctAnswer: "She goes to school.",
+                explanation:
+                  "ב־Present Simple מוסיפים s לפועל כאשר הנושא הוא she, he או it.",
+              },
+            ],
+          });
+        }
+
+        throw aiError;
       }
 
-      throw aiError;
+      const questions = parseAIJson(response.text, [
+        {
+          number: 1,
+          question: "What is the correct sentence?",
+          options: [
+            "She go to school.",
+            "She goes to school.",
+            "She going to school.",
+            "She gone to school.",
+          ],
+          correctAnswer: "She goes to school.",
+          explanation:
+            "ב־Present Simple מוסיפים s לפועל כאשר הנושא הוא she, he או it.",
+        },
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        questions,
+      });
+    } catch (error) {
+      next(error);
     }
-
-    const questions = parseAIJson(response.text, [
-      {
-        number: 1,
-        question: "What is the correct sentence?",
-        options: [
-          "She go to school.",
-          "She goes to school.",
-          "She going to school.",
-          "She gone to school.",
-        ],
-        correctAnswer: "She goes to school.",
-        explanation:
-          "ב־Present Simple מוסיפים s לפועל כאשר הנושא הוא she, he או it.",
-      },
-    ]);
-
-    return res.status(200).json({
-      success: true,
-      questions,
-    });
-  } catch (error) {
-    next(error);
-  }
-},
+  },
 
   // שמירת תוצאות בוחן
   saveQuizResult: async (req, res, next) => {
