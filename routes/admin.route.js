@@ -1,18 +1,16 @@
-import {Router} from 'express';
-import { authenticateToken, requireAdmin } from '../middlewares/auth.middleware.js';
-
-import { UserController } from "../controllers/user.controller.js"; // תיקון נתיב
+import { Router } from "express";
+import { authenticateToken, requireAdmin } from "../middlewares/auth.middleware.js";
+import { UserController } from "../controllers/user.controller.js";
+import { getAdminStats } from "../controllers/adminStats.controller.js";
 
 const router = Router();
 
-// Admin-only routes - יצירת משתמשים חדשים
-router.post('/create-admin', authenticateToken, requireAdmin, UserController.createAdmin);
-router.post('/create-teacher', authenticateToken, requireAdmin, UserController.createTeacher);
+router.get("/stats", authenticateToken, requireAdmin, getAdminStats);
 
-router.delete('/:userId', authenticateToken, requireAdmin, UserController.deleteUser);
+router.post("/create-admin", authenticateToken, requireAdmin, UserController.createAdmin);
 
-//  router.post('/send-test-email', authenticateToken, requireAdmin, UserController.sendTestEmail);
+router.post("/create-teacher", authenticateToken, requireAdmin, UserController.createTeacher);
 
+router.delete("/:userId", authenticateToken, requireAdmin, UserController.deleteUser);
 
 export default router;
-
