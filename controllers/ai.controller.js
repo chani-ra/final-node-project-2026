@@ -606,7 +606,7 @@ Correction rules:
           ? data.score
           : Number(data.score) >= 0 && Number(data.score) <= 100
             ? Number(data.score)
-            : 85;
+            : 90;
 
       return res.status(200).json({
         success: true,
