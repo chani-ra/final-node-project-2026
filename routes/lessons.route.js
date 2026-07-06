@@ -5,11 +5,8 @@ import upload from "../config/multer.js";
 
 const router = Router();
 
-/**
- * ⚠️ TEACHER ROUTES - חייבים להיות ראשונים!
- */
 
-// ➕ העלאת שיעור - MUST BE FIRST
+
 router.post(
   '/upload',
   authenticateToken,
@@ -18,7 +15,6 @@ router.post(
   LessonController.uploadLesson
 );
 
-// ✏️ עדכון שיעור
 router.put(
   '/:lessonId',
   authenticateToken,
@@ -27,7 +23,6 @@ router.put(
   LessonController.updateLesson
 );
 
-// 🗑️ מחיקת שיעור
 router.delete(
   '/:lessonId',
   authenticateToken,
@@ -35,34 +30,25 @@ router.delete(
   LessonController.deleteLesson
 );
 
-/**
- * PUBLIC ROUTES - אחרי זה
- */
 
-// 🔍 חיפוש שיעורים
 router.get('/search', LessonController.searchLessons);
 
-// 📊 סטטיסטיקות מורה
 router.get('/stats/:instructorId', LessonController.getInstructorStats);
 
-// 📖 קבלת שיעור ספציפי
 router.get('/:lessonId', LessonController.getLessonById);
 
-// 📺 השמעת ווידאו בזרם
 router.get('/:lessonId/stream', LessonController.streamLesson);
 
 /**
  * AUTHENTICATED ROUTES
  */
 
-// 📚 קבלת שיעורים של מורה
 router.get(
   '/instructor/:instructorId',
   authenticateToken,
   LessonController.getInstructorLessons
 );
 
-// 👤 הרשמה לשיעור
 router.post(
   '/:lessonId/enroll',
   authenticateToken,

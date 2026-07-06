@@ -7,16 +7,12 @@ import {
 
 const router = Router();
 
-// דף הבית - ציבורי: מציג רק המלצות מאושרות
 router.get("/", ReviewController.getApprovedReviews);
 
-// משתמשת מחוברת מוסיפה המלצה
 router.post("/", authenticateToken, ReviewController.createReview);
 
-// המשתמשת רואה את ההמלצות שהיא שלחה
 router.get("/my", authenticateToken, ReviewController.getMyReviews);
 
-// מנהל רואה הכול
 router.get(
   "/admin/all",
   authenticateToken,
@@ -24,7 +20,6 @@ router.get(
   ReviewController.getAllReviewsForAdmin
 );
 
-// מנהל מאשר
 router.patch(
   "/admin/:reviewId/approve",
   authenticateToken,
@@ -32,7 +27,6 @@ router.patch(
   ReviewController.approveReview
 );
 
-// מנהל דוחה
 router.patch(
   "/admin/:reviewId/reject",
   authenticateToken,
@@ -40,7 +34,6 @@ router.patch(
   ReviewController.rejectReview
 );
 
-// מנהל מוחק
 router.delete(
   "/admin/:reviewId",
   authenticateToken,

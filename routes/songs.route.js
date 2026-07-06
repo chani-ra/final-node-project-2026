@@ -62,10 +62,8 @@ router.get(
   SongsController.getAllSongs
 );
 
-// קבלת שירים ציבוריים
 router.get("/public", SongsController.getPublicSongs);
 
-// קבלת שיר השבוע
 router.get("/weekly", SongsController.getWeeklySong);
 
 // מנהל קובע שיר שבועי
@@ -76,17 +74,14 @@ router.patch(
   SongsController.setWeeklySong
 );
 
-// הזרמת אודיו
 router.get("/song/:id/stream", SongsController.streamSong);
 
-// קבלת שירים של מורה
 router.get(
   "/instructor/:instructorId",
   authenticateToken,
   SongsController.getSongsByInstructor
 );
 
-// עדכון שיר
 router.put(
   "/song/:id",
   authenticateToken,
@@ -95,7 +90,6 @@ router.put(
   SongsController.updateSong
 );
 
-// מחיקת שיר
 router.delete(
   "/song/:id",
   authenticateToken,
