@@ -1,6 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import User from "../models/users.model.js";
 
+import { coachPlanSchema } from "../schemas/ai.schemas.js";
+import { getStudentQuizResultsDeclaration, getStudentQuizResults, } from "../tools/aiCoach.tools.js";
+
+
+console.log("AI CONTROLLER NEW VERSION LOADED");
 // חיבור ל-Gemini באמצעות מפתח ה-API מהסביבה
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -1021,11 +1026,16 @@ Rules:
   },
 
   // מאמן למידה אישי לתלמידה
+  // מאמן למידה אישי לתלמידה
   generateCoachPlan: async (req, res, next) => {
     try {
+
+      console.log("generateCoachPlan started");
+
       const userId = req.user.id;
       const { note } = req.body;
 
+      // 1. בדיקה שהתלמידה באמת כתבה משהו
       if (!note || !note.trim()) {
         return res.status(400).json({
           success: false,
@@ -1033,9 +1043,11 @@ Rules:
         });
       }
 
+      // 2. מביאים את המידע הבסיסי על התלמידה
+      // שימי לב: quizResults כבר לא מגיעים כאן
       const user = await User.findById(userId)
         .select(
-          "username email englishLevel favoriteHobbies expectations quizResults grammarHistory coachHistory"
+          "username email englishLevel favoriteHobbies expectations grammarHistory coachHistory"
         )
         .lean();
 
@@ -1046,13 +1058,15 @@ Rules:
         });
       }
 
+      // 3. ה-Context הבסיסי שאנחנו תמיד נותנים ל-Gemini
       const userProfile = {
         username: user.username || "תלמידה",
         englishLevel: user.englishLevel || "beginner",
         favoriteHobbies: user.favoriteHobbies || [],
         expectations: user.expectations || [],
-        recentQuizResults: (user.quizResults || []).slice(-5),
+
         recentGrammarHistory: (user.grammarHistory || []).slice(-3),
+
         recentCoachNotes: (user.coachHistory || [])
           .slice(-3)
           .map((item) => ({
@@ -1060,48 +1074,198 @@ Rules:
             focus: item.plan?.focus,
             createdAt: item.createdAt,
           })),
+
         studentNote: note.trim(),
       };
 
+      // 4. ה-Prompt של המאמן
       const prompt = `
 You are an expert English learning coach for Hebrew-speaking students.
 
-Create a short, practical, personal study plan for today.
+Create a short, practical, personalized study plan for today.
 
-Student profile:
+Today's student request - HIGHEST PRIORITY:
+${JSON.stringify(note.trim())}
+
+Student profile and previous learning context:
 ${JSON.stringify(userProfile, null, 2)}
 
 Important rules:
-1. The response must be in Hebrew.
-2. Keep it warm, encouraging, and practical.
-3. Do not create a long plan. The student needs something doable today.
-4. Use the student's level, hobbies, goals, recent history, and today's note.
-5. Return strictly valid JSON only.
-6. Do not wrap the JSON in markdown.
-7. The steps must be short and concrete.
+1. The student's current request is the highest priority.
+2. Previous coach history is only secondary context.
+3. Do not repeat a previous plan topic unless today's request or current learning data supports it.
+4. If today's request is different from previous plans, follow today's request.
+5. Use the student's level, hobbies and goals only to personalize the plan, not to override today's request.
+6. Use quiz information if it was retrieved by a tool.
+7. The response must be in Hebrew.
+8. Keep the plan warm, encouraging and practical.
+9. Create exactly 3 short and concrete steps.
+10. Keep the plan realistic and doable today.
 
-Return this exact JSON structure:
-{
-  "focus": "מיקוד קצר להיום",
-  "summary": "משפט קצר שמסביר מה הבנת מהתלמידה",
-  "steps": ["שלב 1", "שלב 2", "שלב 3"],
-  "tip": "טיפ למידה קצר",
-  "encouragement": "משפט עידוד אישי",
-  "estimatedMinutes": 15
-}
+The final plan must contain:
+- focus
+- summary
+- exactly 3 steps
+- tip
+- encouragement
+- estimatedMinutes
+`;
+      let response;
+      let usedQuizTool = false;
+      try {
+        // 5. שלב ראשון:
+        // נותנים ל-Gemini אפשרות להחליט אם הוא צריך ציונים
+        // 
+
+        const toolPrompt = `
+${prompt}
+
+Before creating the final study plan:
+
+Decide whether seeing the student's recent quiz results would
+materially help you personalize the plan.
+
+If the quiz results are useful, call the getStudentQuizResults tool.
+
+If they are not useful, do not call the tool.
 `;
 
-      let response;
+        const toolDecisionResponse =
+          await ai.models.generateContent({
+            model: "gemini-2.5-flash",
 
-      try {
+            contents: toolPrompt,
+
+            config: {
+              tools: [
+                {
+                  functionDeclarations: [
+                    getStudentQuizResultsDeclaration,
+                  ],
+                },
+              ],
+            },
+          });
+
+
+        // 6. בודקים האם Gemini ביקש Tool
+
+
+        const functionCall =
+          toolDecisionResponse.functionCalls?.find(
+            (call) =>
+              call.name === "getStudentQuizResults"
+          );
+
+        let finalContents;
+
+
+        // 7. אם Gemini ביקש את הכלי
+
+
+
+
+        if (functionCall) {
+          usedQuizTool = true;
+          console.log(
+            "🛠️ Gemini requested getStudentQuizResults"
+          );
+
+          // כאן הפונקציה האמיתית רצה
+          const quizToolData =
+            await getStudentQuizResults(userId);
+
+          console.log(
+            "✅ getStudentQuizResults returned:",
+            quizToolData
+          );
+
+          // מכינים תשובה של ה-Tool בחזרה ל-Gemini
+          const functionResponse = {
+            name: functionCall.name,
+
+            response: {
+              result: quizToolData,
+            },
+          };
+
+          // ב-Gemini 3 יש גם id.
+          // אם קיבלנו id - נחזיר גם אותו.
+          if (functionCall.id) {
+            functionResponse.id = functionCall.id;
+          }
+
+          // שומרים את "השיחה":
+          // תלמידה -> Gemini -> Tool -> תוצאת Tool
+          finalContents = [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: toolPrompt,
+                },
+              ],
+            },
+
+            toolDecisionResponse.candidates[0].content,
+
+            {
+              role: "user",
+              parts: [
+                {
+                  functionResponse,
+                },
+              ],
+            },
+
+            {
+              role: "user",
+              parts: [
+                {
+                  text:
+                    "Now create the final personalized study plan using the information above.",
+                },
+              ],
+            },
+          ];
+        } else {
+          // 8. Gemini החליט שאין צורך בציונים
+
+          console.log(
+            "ℹ️ Gemini decided quiz results are not needed"
+          );
+
+          finalContents = `
+${prompt}
+
+You decided that quiz results were not necessary for this request.
+
+Now create the final personalized study plan.
+`;
+        }
+
+        // =====================================================
+        // 9. קריאה סופית:
+        // עכשיו אנחנו רוצים את התוכנית המסודרת לפי ה-Schema
+        // =====================================================
+
         response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
-          contents: prompt,
-          config: { responseMimeType: "application/json" },
+
+          contents: finalContents,
+
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: coachPlanSchema,
+          },
         });
       } catch (aiError) {
-        console.error("❌ AI Coach Gemini Error:", aiError.message || aiError);
+        console.error(
+          "❌ AI Coach AI Flow Error:",
+          aiError.message || aiError
+        );
 
+        // Gemini הגיע למכסה / עומס
         if (isRateLimitError(aiError)) {
           const fallbackPlan = getCoachFallbackPlan();
 
@@ -1126,7 +1290,14 @@ Return this exact JSON structure:
         throw aiError;
       }
 
-      const coachPlan = parseAIJson(response.text, getCoachFallbackPlan());
+      // 10. הופכים את JSON של Gemini לאובייקט JavaScript
+
+      const coachPlan = parseAIJson(
+        response.text,
+        getCoachFallbackPlan()
+      );
+
+      // 11. שומרים את התוכנית בהיסטוריה
 
       await User.findByIdAndUpdate(userId, {
         $push: {
@@ -1138,19 +1309,20 @@ Return this exact JSON structure:
         },
       });
 
-      return res.status(200).json({
-        success: true,
-        plan: coachPlan,
-      });
-    } catch (error) {
-      console.error("❌ AI Coach Error:", error.message || error);
+      // 
+      // 12. מחזירים את התוכנית ל-Frontend
+      // 
 
       return res.status(200).json({
         success: true,
-        plan: getCoachFallbackPlan(),
-        fallback: true,
-        reason: "server_error",
+        plan: coachPlan,
+        toolUsed: usedQuizTool
+          ? "getStudentQuizResults"
+          : null,
       });
+    } catch (error) {
+      // שגיאת שרת אמיתית עוברת ל-error middleware שלך
+      next(error);
     }
   },
 
