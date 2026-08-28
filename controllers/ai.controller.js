@@ -2,8 +2,12 @@ import { GoogleGenAI } from "@google/genai";
 import User from "../models/users.model.js";
 
 import { coachPlanSchema } from "../schemas/ai.schemas.js";
-import { getStudentQuizResultsDeclaration, getStudentQuizResults, } from "../tools/aiCoach.tools.js";
-
+import {
+  getStudentQuizResultsDeclaration,
+  getStudentQuizResults,
+  getStudentGrammarHistoryDeclaration,
+  getStudentGrammarHistory,
+} from "../tools/aiCoach.tools.js";
 
 console.log("AI CONTROLLER NEW VERSION LOADED");
 // חיבור ל-Gemini באמצעות מפתח ה-API מהסביבה
@@ -515,7 +519,7 @@ Rules:
   checkEssay: async (req, res, next) => {
     try {
       const { text, studentLevel } = req.body;
-
+      const userId = req.user?.id;
       if (!text || !text.trim()) {
         return res.status(400).json({
           success: false,
@@ -611,7 +615,46 @@ Correction rules:
           ? data.score
           : Number(data.score) >= 0 && Number(data.score) <= 100
             ? Number(data.score)
-            : 90;
+            : 85;
+
+      const grammarCorrections = Array.isArray(data.grammarCorrections)
+        ? data.grammarCorrections
+        : [];
+
+      const grammarHistoryEntries = grammarCorrections
+        .filter(
+          (item) =>
+            item?.mistake &&
+            item?.correction
+        )
+        .map((item) => ({
+          original: item.mistake,
+          corrected: item.correction,
+          explanation: item.explanation || "",
+        }));
+
+      if (userId && grammarHistoryEntries.length > 0) {
+        try {
+          await User.findByIdAndUpdate(userId, {
+            $push: {
+              grammarHistory: {
+                $each: grammarHistoryEntries,
+              },
+            },
+          });
+
+          console.log(
+            "📝 Writing corrections saved to grammarHistory:",
+            grammarHistoryEntries.length
+          );
+        } catch (saveError) {
+          console.error(
+            "❌ Failed to save writing corrections:",
+            saveError.message || saveError
+          );
+        }
+      }
+
 
       return res.status(200).json({
         success: true,
@@ -620,9 +663,7 @@ Correction rules:
           generalFeedback:
             data.generalFeedback ||
             "בדקתי את הכתיבה שלך. יש כמה נקודות לשיפור, אבל הכיוון טוב.",
-          grammarCorrections: Array.isArray(data.grammarCorrections)
-            ? data.grammarCorrections
-            : [],
+          grammarCorrections,
         },
       });
     } catch (error) {
@@ -1047,7 +1088,7 @@ Rules:
       // שימי לב: quizResults כבר לא מגיעים כאן
       const user = await User.findById(userId)
         .select(
-          "username email englishLevel favoriteHobbies expectations grammarHistory coachHistory"
+          "username email englishLevel favoriteHobbies expectations coachHistory"
         )
         .lean();
 
@@ -1064,8 +1105,6 @@ Rules:
         englishLevel: user.englishLevel || "beginner",
         favoriteHobbies: user.favoriteHobbies || [],
         expectations: user.expectations || [],
-
-        recentGrammarHistory: (user.grammarHistory || []).slice(-3),
 
         recentCoachNotes: (user.coachHistory || [])
           .slice(-3)
@@ -1096,7 +1135,7 @@ Important rules:
 3. Do not repeat a previous plan topic unless today's request or current learning data supports it.
 4. If today's request is different from previous plans, follow today's request.
 5. Use the student's level, hobbies and goals only to personalize the plan, not to override today's request.
-6. Use quiz information if it was retrieved by a tool.
+6. Use information retrieved by a tool when it is available and relevant.
 7. The response must be in Hebrew.
 8. Keep the plan warm, encouraging and practical.
 9. Create exactly 3 short and concrete steps.
@@ -1111,23 +1150,31 @@ The final plan must contain:
 - estimatedMinutes
 `;
       let response;
-      let usedQuizTool = false;
+      let usedTool = null;
       try {
         // 5. שלב ראשון:
         // נותנים ל-Gemini אפשרות להחליט אם הוא צריך ציונים
         // 
-
         const toolPrompt = `
 ${prompt}
 
-Before creating the final study plan:
+Before creating the final study plan, decide whether additional
+student learning data would materially improve the plan.
 
-Decide whether seeing the student's recent quiz results would
-materially help you personalize the plan.
+You have these tools:
 
-If the quiz results are useful, call the getStudentQuizResults tool.
+1. getStudentQuizResults
+Use it when quiz scores, quiz performance, strengths, weaknesses,
+or recent test results are relevant.
 
-If they are not useful, do not call the tool.
+2. getStudentGrammarHistory
+Use it when grammar mistakes, writing corrections, repeated errors,
+or grammar weaknesses are relevant.
+
+Rules:
+- Call at most one tool.
+- Choose the tool that is most relevant to the student's current request.
+- Do not call a tool if the current request can be answered well without one.
 `;
 
         const toolDecisionResponse =
@@ -1141,6 +1188,7 @@ If they are not useful, do not call the tool.
                 {
                   functionDeclarations: [
                     getStudentQuizResultsDeclaration,
+                    getStudentGrammarHistoryDeclaration,
                   ],
                 },
               ],
@@ -1152,51 +1200,48 @@ If they are not useful, do not call the tool.
 
 
         const functionCall =
-          toolDecisionResponse.functionCalls?.find(
-            (call) =>
-              call.name === "getStudentQuizResults"
-          );
+          toolDecisionResponse.functionCalls?.[0] || null;
 
         let finalContents;
 
-
-        // 7. אם Gemini ביקש את הכלי
-
-
-
-
         if (functionCall) {
-          usedQuizTool = true;
-          console.log(
-            "🛠️ Gemini requested getStudentQuizResults"
-          );
-
-          // כאן הפונקציה האמיתית רצה
-          const quizToolData =
-            await getStudentQuizResults(userId);
+          let toolData;
 
           console.log(
-            "✅ getStudentQuizResults returned:",
-            quizToolData
+            `🛠️ Gemini requested ${functionCall.name}`
           );
 
-          // מכינים תשובה של ה-Tool בחזרה ל-Gemini
+          if (functionCall.name === "getStudentQuizResults") {
+            toolData = await getStudentQuizResults(userId);
+          } else if (
+            functionCall.name === "getStudentGrammarHistory"
+          ) {
+            toolData = await getStudentGrammarHistory(userId);
+          } else {
+            throw new Error(
+              `Unknown AI coach tool: ${functionCall.name}`
+            );
+          }
+
+          usedTool = functionCall.name;
+
+          console.log(
+            `✅ ${functionCall.name} returned:`,
+            toolData
+          );
+
           const functionResponse = {
             name: functionCall.name,
 
             response: {
-              result: quizToolData,
+              result: toolData,
             },
           };
 
-          // ב-Gemini 3 יש גם id.
-          // אם קיבלנו id - נחזיר גם אותו.
           if (functionCall.id) {
             functionResponse.id = functionCall.id;
           }
 
-          // שומרים את "השיחה":
-          // תלמידה -> Gemini -> Tool -> תוצאת Tool
           finalContents = [
             {
               role: "user",
@@ -1229,25 +1274,22 @@ If they are not useful, do not call the tool.
             },
           ];
         } else {
-          // 8. Gemini החליט שאין צורך בציונים
-
           console.log(
-            "ℹ️ Gemini decided quiz results are not needed"
+            "ℹ️ Gemini decided no tool was needed"
           );
 
           finalContents = `
 ${prompt}
 
-You decided that quiz results were not necessary for this request.
+You decided that no additional tool was necessary for this request.
 
 Now create the final personalized study plan.
 `;
         }
 
-        // =====================================================
         // 9. קריאה סופית:
         // עכשיו אנחנו רוצים את התוכנית המסודרת לפי ה-Schema
-        // =====================================================
+        // 
 
         response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
@@ -1316,9 +1358,7 @@ Now create the final personalized study plan.
       return res.status(200).json({
         success: true,
         plan: coachPlan,
-        toolUsed: usedQuizTool
-          ? "getStudentQuizResults"
-          : null,
+        toolUsed: usedTool,
       });
     } catch (error) {
       // שגיאת שרת אמיתית עוברת ל-error middleware שלך

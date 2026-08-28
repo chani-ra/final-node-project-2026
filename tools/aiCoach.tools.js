@@ -1,7 +1,6 @@
 import { Type } from "@google/genai";
 import User from "../models/users.model.js";
 
-// התיאור של הכלי ש-Gemini מקבל
 export const getStudentQuizResultsDeclaration = {
   name: "getStudentQuizResults",
 
@@ -14,7 +13,18 @@ export const getStudentQuizResultsDeclaration = {
   },
 };
 
-// הפונקציה האמיתית שרצה אצלנו בשרת
+export const getStudentGrammarHistoryDeclaration = {
+  name: "getStudentGrammarHistory",
+
+  description:
+    "Gets the authenticated student's 5 most recent grammar corrections. Use this tool when grammar mistakes, writing weaknesses, or repeated language errors can help personalize the study plan.",
+
+  parameters: {
+    type: Type.OBJECT,
+    properties: {},
+  },
+};
+
 export async function getStudentQuizResults(userId) {
   const user = await User.findById(userId)
     .select("quizResults")
@@ -41,7 +51,6 @@ export async function getStudentQuizResults(userId) {
       quizType: result.quiz?.quizType || null,
       category: result.quiz?.category || null,
       level: result.quiz?.englishLevel || null,
-
       score: result.score,
       totalPoints: result.totalPoints,
       percentage: result.percentage,
@@ -52,5 +61,34 @@ export async function getStudentQuizResults(userId) {
   return {
     count: recentQuizResults.length,
     recentQuizResults,
+  };
+}
+
+export async function getStudentGrammarHistory(userId) {
+  const user = await User.findById(userId)
+    .select("grammarHistory")
+    .lean();
+
+  if (!user) {
+    const error = new Error("User not found");
+    error.status = 404;
+    throw error;
+  }
+
+  const recentGrammarHistory = [
+    ...(user.grammarHistory || []),
+  ]
+    .slice(-5)
+    .reverse()
+    .map((item) => ({
+      original: item.original || "",
+      corrected: item.corrected || "",
+      explanation: item.explanation || "",
+      createdAt: item.createdAt || null,
+    }));
+
+  return {
+    count: recentGrammarHistory.length,
+    recentGrammarHistory,
   };
 }
