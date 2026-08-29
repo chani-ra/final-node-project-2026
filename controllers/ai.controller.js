@@ -3,10 +3,8 @@ import User from "../models/users.model.js";
 
 import { coachPlanSchema } from "../schemas/ai.schemas.js";
 import {
-  getStudentQuizResultsDeclaration,
-  getStudentQuizResults,
-  getStudentGrammarHistoryDeclaration,
-  getStudentGrammarHistory,
+  aiCoachToolDeclarations,
+  aiCoachToolHandlers,
 } from "../tools/aiCoach.tools.js";
 
 console.log("AI CONTROLLER NEW VERSION LOADED");
@@ -1153,14 +1151,12 @@ The final plan must contain:
       let usedTool = null;
       try {
         // 5. שלב ראשון:
-        // נותנים ל-Gemini אפשרות להחליט אם הוא צריך ציונים
-        // 
+         // נותנים ל-Gemini להחליט אם הוא צריך מידע נוסף דרך Tool
         const toolPrompt = `
 ${prompt}
 
 Before creating the final study plan, decide whether additional
 student learning data would materially improve the plan.
-
 You have these tools:
 
 1. getStudentQuizResults
@@ -1170,6 +1166,10 @@ or recent test results are relevant.
 2. getStudentGrammarHistory
 Use it when grammar mistakes, writing corrections, repeated errors,
 or grammar weaknesses are relevant.
+
+3. getStudentLearningProgress
+Use it when course progress, completed activities, recent learning activity,
+or deciding what the student should study next is relevant.
 
 Rules:
 - Call at most one tool.
@@ -1186,10 +1186,7 @@ Rules:
             config: {
               tools: [
                 {
-                  functionDeclarations: [
-                    getStudentQuizResultsDeclaration,
-                    getStudentGrammarHistoryDeclaration,
-                  ],
+                  functionDeclarations: aiCoachToolDeclarations,
                 },
               ],
             },
@@ -1205,26 +1202,22 @@ Rules:
         let finalContents;
 
         if (functionCall) {
-          let toolData;
-
           console.log(
             `🛠️ Gemini requested ${functionCall.name}`
           );
 
-          if (functionCall.name === "getStudentQuizResults") {
-            toolData = await getStudentQuizResults(userId);
-          } else if (
-            functionCall.name === "getStudentGrammarHistory"
-          ) {
-            toolData = await getStudentGrammarHistory(userId);
-          } else {
+          const toolHandler =
+            aiCoachToolHandlers[functionCall.name];
+
+          if (!toolHandler) {
             throw new Error(
               `Unknown AI coach tool: ${functionCall.name}`
             );
           }
 
-          usedTool = functionCall.name;
+          const toolData = await toolHandler(userId);
 
+          usedTool = functionCall.name;
           console.log(
             `✅ ${functionCall.name} returned:`,
             toolData

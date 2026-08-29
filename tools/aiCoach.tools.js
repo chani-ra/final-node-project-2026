@@ -1,5 +1,7 @@
 import { Type } from "@google/genai";
+
 import User from "../models/users.model.js";
+import CourseProgress from "../models/courseProgress.model.js";
 
 export const getStudentQuizResultsDeclaration = {
   name: "getStudentQuizResults",
@@ -18,6 +20,18 @@ export const getStudentGrammarHistoryDeclaration = {
 
   description:
     "Gets the authenticated student's 5 most recent grammar corrections. Use this tool when grammar mistakes, writing weaknesses, or repeated language errors can help personalize the study plan.",
+
+  parameters: {
+    type: Type.OBJECT,
+    properties: {},
+  },
+};
+
+export const getStudentLearningProgressDeclaration = {
+  name: "getStudentLearningProgress",
+
+  description:
+    "Gets the authenticated student's recent course learning progress. Use this tool when course progress, completed learning activities, study activity, or what the student should study next is relevant.",
 
   parameters: {
     type: Type.OBJECT,
@@ -92,3 +106,46 @@ export async function getStudentGrammarHistory(userId) {
     recentGrammarHistory,
   };
 }
+
+
+export async function getStudentLearningProgress(userId) {
+  const progressList = await CourseProgress.find({
+    user: userId,
+  })
+    .sort({ lastActivityAt: -1 })
+    .limit(5)
+    .populate(
+      "course",
+      "title category level"
+    )
+    .lean();
+
+  const courses = progressList.map((item) => ({
+    title: item.course?.title || "Unknown course",
+    category: item.course?.category || null,
+    level: item.course?.level || null,
+    progressPercent: item.progressPercent || 0,
+    completedLessons: item.completedLessons?.length || 0,
+    completedSongs: item.completedSongs?.length || 0,
+    completedExercises:
+      item.completedExercises?.length || 0,
+    completedQuizzes: item.completedQuizzes?.length || 0,
+    lastActivityAt: item.lastActivityAt || null,
+  }));
+
+  return {
+    count: courses.length,
+    courses,
+  };
+}
+
+export const aiCoachToolDeclarations = [
+  getStudentQuizResultsDeclaration,
+  getStudentGrammarHistoryDeclaration,
+  getStudentLearningProgressDeclaration,
+];
+export const aiCoachToolHandlers = {
+  getStudentQuizResults,
+  getStudentGrammarHistory,
+  getStudentLearningProgress,
+};
