@@ -1148,10 +1148,10 @@ The final plan must contain:
 - estimatedMinutes
 `;
       let response;
-      let usedTool = null;
+      let usedTools = [];
       try {
         // 5. שלב ראשון:
-         // נותנים ל-Gemini להחליט אם הוא צריך מידע נוסף דרך Tool
+        // נותנים ל-Gemini להחליט אם הוא צריך מידע נוסף דרך Tool
         const toolPrompt = `
 ${prompt}
 
@@ -1172,36 +1172,62 @@ Use it when course progress, completed activities, recent learning activity,
 or deciding what the student should study next is relevant.
 
 Rules:
-- Call at most one tool.
-- Choose the tool that is most relevant to the student's current request.
+- You may use more than one tool when multiple data sources would improve the plan.
+- Call only one tool at a time.
+- After receiving a tool result, decide whether another different tool is needed.
+- Do not call the same tool more than once.
+- Use at most 3 tool calls.
 - Do not call a tool if the current request can be answered well without one.
 `;
 
-        const toolDecisionResponse =
-          await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+        const agentContents = [
+          {
+            role: "user",
+            parts: [
+              {
+                text: toolPrompt,
+              },
+            ],
+          },
+        ];
 
-            contents: toolPrompt,
+        const usedToolNames = new Set();
+        const maxToolCalls = 3;
 
-            config: {
-              tools: [
-                {
-                  functionDeclarations: aiCoachToolDeclarations,
-                },
-              ],
-            },
-          });
+        for (let round = 0; round < maxToolCalls; round++) {
+          const agentResponse =
+            await ai.models.generateContent({
+              model: "gemini-2.5-flash",
 
+              contents: agentContents,
 
-        // 6. בודקים האם Gemini ביקש Tool
+              config: {
+                tools: [
+                  {
+                    functionDeclarations:
+                      aiCoachToolDeclarations,
+                  },
+                ],
+              },
+            });
 
+          const functionCall =
+            agentResponse.functionCalls?.[0] || null;
 
-        const functionCall =
-          toolDecisionResponse.functionCalls?.[0] || null;
+          if (!functionCall) {
+            console.log(
+              "ℹ️ Gemini decided it has enough information"
+            );
 
-        let finalContents;
+            if (agentResponse.candidates?.[0]?.content) {
+              agentContents.push(
+                agentResponse.candidates[0].content
+              );
+            }
 
-        if (functionCall) {
+            break;
+          }
+
           console.log(
             `🛠️ Gemini requested ${functionCall.name}`
           );
@@ -1215,9 +1241,47 @@ Rules:
             );
           }
 
+          if (usedToolNames.has(functionCall.name)) {
+            console.log(
+              `ℹ️ ${functionCall.name} was already used`
+            );
+
+            const duplicateResponse = {
+              name: functionCall.name,
+
+              response: {
+                result: {
+                  message:
+                    "This tool was already used. Choose another tool if needed, or finish.",
+                },
+              },
+            };
+
+            if (functionCall.id) {
+              duplicateResponse.id = functionCall.id;
+            }
+
+            agentContents.push(
+              agentResponse.candidates[0].content
+            );
+
+            agentContents.push({
+              role: "user",
+              parts: [
+                {
+                  functionResponse: duplicateResponse,
+                },
+              ],
+            });
+
+            continue;
+          }
+
           const toolData = await toolHandler(userId);
 
-          usedTool = functionCall.name;
+          usedToolNames.add(functionCall.name);
+          usedTools.push(functionCall.name);
+
           console.log(
             `✅ ${functionCall.name} returned:`,
             toolData
@@ -1235,51 +1299,33 @@ Rules:
             functionResponse.id = functionCall.id;
           }
 
-          finalContents = [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: toolPrompt,
-                },
-              ],
-            },
-
-            toolDecisionResponse.candidates[0].content,
-
-            {
-              role: "user",
-              parts: [
-                {
-                  functionResponse,
-                },
-              ],
-            },
-
-            {
-              role: "user",
-              parts: [
-                {
-                  text:
-                    "Now create the final personalized study plan using the information above.",
-                },
-              ],
-            },
-          ];
-        } else {
-          console.log(
-            "ℹ️ Gemini decided no tool was needed"
+          agentContents.push(
+            agentResponse.candidates[0].content
           );
 
-          finalContents = `
-${prompt}
-
-You decided that no additional tool was necessary for this request.
-
-Now create the final personalized study plan.
-`;
+          agentContents.push({
+            role: "user",
+            parts: [
+              {
+                functionResponse,
+              },
+            ],
+          });
         }
 
+        const finalContents = [
+          ...agentContents,
+
+          {
+            role: "user",
+            parts: [
+              {
+                text:
+                  "Now create the final personalized study plan. Use all relevant information retrieved from the tools above. Do not request any more tools.",
+              },
+            ],
+          },
+        ];
         // 9. קריאה סופית:
         // עכשיו אנחנו רוצים את התוכנית המסודרת לפי ה-Schema
         // 
@@ -1351,7 +1397,7 @@ Now create the final personalized study plan.
       return res.status(200).json({
         success: true,
         plan: coachPlan,
-        toolUsed: usedTool,
+        toolsUsed: usedTools,
       });
     } catch (error) {
       // שגיאת שרת אמיתית עוברת ל-error middleware שלך
