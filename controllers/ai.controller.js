@@ -1,12 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import User from "../models/users.model.js";
 
-import { coachPlanSchema } from "../schemas/ai.schemas.js";
-import {
-  aiCoachToolDeclarations,
-  aiCoachToolHandlers,
-} from "../tools/aiCoach.tools.js";
-
+import { generateCoachAgentPlan } from "../agents/coach.agent.js";
 console.log("AI CONTROLLER NEW VERSION LOADED");
 // חיבור ל-Gemini באמצעות מפתח ה-API מהסביבה
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -44,23 +39,6 @@ const isEnglishLearningRequest = (message = "") => {
   return hasEnglishText || learningPattern.test(text);
 };
 
-// תוכנית גיבוי למאמן האישי כש-Gemini לא זמין
-const getCoachFallbackPlan = () => {
-  return {
-    focus: "תרגול קצר להיום",
-    summary:
-      "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית, לכן מוצגת תוכנית גיבוי חכמה.",
-    steps: [
-      "בחרי 5 מילים חדשות מתוך שיעור, שיר או קטע קצר.",
-      "כתבי ליד כל מילה פירוש קצר בעברית.",
-      "כתבי משפט אחד באנגלית עם אחת מהמילים.",
-    ],
-    tip: "נסי שוב בעוד כמה דקות לקבלת תוכנית מותאמת אישית מה־AI.",
-    encouragement:
-      "גם תרגול קצר בלי AI מקדם אותך. העיקר להמשיך בצעד קטן וברור.",
-    estimatedMinutes: 15,
-  };
-};
 
 // תשובת גיבוי לצ׳אט כש-Gemini לא זמין
 const getConversationFallbackReply = () => {
@@ -1066,345 +1044,114 @@ Rules:
 
   // מאמן למידה אישי לתלמידה
   // מאמן למידה אישי לתלמידה
-  generateCoachPlan: async (req, res, next) => {
-    try {
+ generateCoachPlan: async (
+  req,
+  res,
+  next
+) => {
+  try {
+    console.log(
+      "generateCoachPlan started"
+    );
 
-      console.log("generateCoachPlan started");
+    const userId = req.user.id;
 
-      const userId = req.user.id;
-      const { note } = req.body;
+    const { note } = req.body;
 
-      // 1. בדיקה שהתלמידה באמת כתבה משהו
-      if (!note || !note.trim()) {
-        return res.status(400).json({
-          success: false,
-          message: "נא לכתוב במה את רוצה עזרה או מה קשה לך היום",
-        });
-      }
+    if (!note || !note.trim()) {
+      return res.status(400).json({
+        success: false,
 
-      // 2. מביאים את המידע הבסיסי על התלמידה
-      // שימי לב: quizResults כבר לא מגיעים כאן
-      const user = await User.findById(userId)
-        .select(
-          "username email englishLevel favoriteHobbies expectations coachHistory"
-        )
-        .lean();
+        message:
+          "נא לכתוב במה את רוצה עזרה או מה קשה לך היום",
+      });
+    }
 
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "משתמש לא נמצא",
-        });
-      }
+    const cleanNote = note.trim();
 
-      // 3. ה-Context הבסיסי שאנחנו תמיד נותנים ל-Gemini
-      const userProfile = {
-        username: user.username || "תלמידה",
-        englishLevel: user.englishLevel || "beginner",
-        favoriteHobbies: user.favoriteHobbies || [],
-        expectations: user.expectations || [],
+    const user = await User.findById(
+      userId
+    )
+      .select(
+        "username email englishLevel favoriteHobbies expectations coachHistory"
+      )
+      .lean();
 
-        recentCoachNotes: (user.coachHistory || [])
-          .slice(-3)
-          .map((item) => ({
-            note: item.note,
-            focus: item.plan?.focus,
-            createdAt: item.createdAt,
-          })),
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "משתמש לא נמצא",
+      });
+    }
 
-        studentNote: note.trim(),
-      };
+    const userProfile = {
+      username:
+        user.username || "תלמידה",
 
-      // 4. ה-Prompt של המאמן
-      const prompt = `
-You are an expert English learning coach for Hebrew-speaking students.
+      englishLevel:
+        user.englishLevel ||
+        "beginner",
 
-Create a short, practical, personalized study plan for today.
+      favoriteHobbies:
+        user.favoriteHobbies || [],
 
-Today's student request - HIGHEST PRIORITY:
-${JSON.stringify(note.trim())}
+      expectations:
+        user.expectations || [],
 
-Student profile and previous learning context:
-${JSON.stringify(userProfile, null, 2)}
+      recentCoachNotes: (
+        user.coachHistory || []
+      )
+        .slice(-3)
+        .map((item) => ({
+          note: item.note,
 
-Important rules:
-1. The student's current request is the highest priority.
-2. Previous coach history is only secondary context.
-3. Do not repeat a previous plan topic unless today's request or current learning data supports it.
-4. If today's request is different from previous plans, follow today's request.
-5. Use the student's level, hobbies and goals only to personalize the plan, not to override today's request.
-6. Use information retrieved by a tool when it is available and relevant.
-7. The response must be in Hebrew.
-8. Keep the plan warm, encouraging and practical.
-9. Create exactly 3 short and concrete steps.
-10. Keep the plan realistic and doable today.
+          focus:
+            item.plan?.focus,
 
-The final plan must contain:
-- focus
-- summary
-- exactly 3 steps
-- tip
-- encouragement
-- estimatedMinutes
-`;
-      let response;
-      let usedTools = [];
-      try {
-        // 5. שלב ראשון:
-        // נותנים ל-Gemini להחליט אם הוא צריך מידע נוסף דרך Tool
-        const toolPrompt = `
-${prompt}
+          createdAt:
+            item.createdAt,
+        })),
+    };
 
-Before creating the final study plan, decide whether additional
-student learning data would materially improve the plan.
-You have these tools:
+    const {
+      plan,
+      toolsUsed,
+      fallback,
+      reason,
+    } = await generateCoachAgentPlan({
+      userId,
+      note: cleanNote,
+      userProfile,
+    });
 
-1. getStudentQuizResults
-Use it when quiz scores, quiz performance, strengths, weaknesses,
-or recent test results are relevant.
-
-2. getStudentGrammarHistory
-Use it when grammar mistakes, writing corrections, repeated errors,
-or grammar weaknesses are relevant.
-
-3. getStudentLearningProgress
-Use it when course progress, completed activities, recent learning activity,
-or deciding what the student should study next is relevant.
-
-Rules:
-- You may use more than one tool when multiple data sources would improve the plan.
-- Call only one tool at a time.
-- After receiving a tool result, decide whether another different tool is needed.
-- Do not call the same tool more than once.
-- Use at most 3 tool calls.
-- Do not call a tool if the current request can be answered well without one.
-`;
-
-        const agentContents = [
-          {
-            role: "user",
-            parts: [
-              {
-                text: toolPrompt,
-              },
-            ],
-          },
-        ];
-
-        const usedToolNames = new Set();
-        const maxToolCalls = 3;
-
-        for (let round = 0; round < maxToolCalls; round++) {
-          const agentResponse =
-            await ai.models.generateContent({
-              model: "gemini-2.5-flash",
-
-              contents: agentContents,
-
-              config: {
-                tools: [
-                  {
-                    functionDeclarations:
-                      aiCoachToolDeclarations,
-                  },
-                ],
-              },
-            });
-
-          const functionCall =
-            agentResponse.functionCalls?.[0] || null;
-
-          if (!functionCall) {
-            console.log(
-              "ℹ️ Gemini decided it has enough information"
-            );
-
-            if (agentResponse.candidates?.[0]?.content) {
-              agentContents.push(
-                agentResponse.candidates[0].content
-              );
-            }
-
-            break;
-          }
-
-          console.log(
-            `🛠️ Gemini requested ${functionCall.name}`
-          );
-
-          const toolHandler =
-            aiCoachToolHandlers[functionCall.name];
-
-          if (!toolHandler) {
-            throw new Error(
-              `Unknown AI coach tool: ${functionCall.name}`
-            );
-          }
-
-          if (usedToolNames.has(functionCall.name)) {
-            console.log(
-              `ℹ️ ${functionCall.name} was already used`
-            );
-
-            const duplicateResponse = {
-              name: functionCall.name,
-
-              response: {
-                result: {
-                  message:
-                    "This tool was already used. Choose another tool if needed, or finish.",
-                },
-              },
-            };
-
-            if (functionCall.id) {
-              duplicateResponse.id = functionCall.id;
-            }
-
-            agentContents.push(
-              agentResponse.candidates[0].content
-            );
-
-            agentContents.push({
-              role: "user",
-              parts: [
-                {
-                  functionResponse: duplicateResponse,
-                },
-              ],
-            });
-
-            continue;
-          }
-
-          const toolData = await toolHandler(userId);
-
-          usedToolNames.add(functionCall.name);
-          usedTools.push(functionCall.name);
-
-          console.log(
-            `✅ ${functionCall.name} returned:`,
-            toolData
-          );
-
-          const functionResponse = {
-            name: functionCall.name,
-
-            response: {
-              result: toolData,
-            },
-          };
-
-          if (functionCall.id) {
-            functionResponse.id = functionCall.id;
-          }
-
-          agentContents.push(
-            agentResponse.candidates[0].content
-          );
-
-          agentContents.push({
-            role: "user",
-            parts: [
-              {
-                functionResponse,
-              },
-            ],
-          });
-        }
-
-        const finalContents = [
-          ...agentContents,
-
-          {
-            role: "user",
-            parts: [
-              {
-                text:
-                  "Now create the final personalized study plan. Use all relevant information retrieved from the tools above. Do not request any more tools.",
-              },
-            ],
-          },
-        ];
-        // 9. קריאה סופית:
-        // עכשיו אנחנו רוצים את התוכנית המסודרת לפי ה-Schema
-        // 
-
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-
-          contents: finalContents,
-
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: coachPlanSchema,
-          },
-        });
-      } catch (aiError) {
-        console.error(
-          "❌ AI Coach AI Flow Error:",
-          aiError.message || aiError
-        );
-
-        // Gemini הגיע למכסה / עומס
-        if (isRateLimitError(aiError)) {
-          const fallbackPlan = getCoachFallbackPlan();
-
-          await User.findByIdAndUpdate(userId, {
-            $push: {
-              coachHistory: {
-                note: note.trim(),
-                plan: fallbackPlan,
-                createdAt: new Date(),
-              },
-            },
-          });
-
-          return res.status(200).json({
-            success: true,
-            plan: fallbackPlan,
-            fallback: true,
-            reason: "rate_limit",
-          });
-        }
-
-        throw aiError;
-      }
-
-      // 10. הופכים את JSON של Gemini לאובייקט JavaScript
-
-      const coachPlan = parseAIJson(
-        response.text,
-        getCoachFallbackPlan()
-      );
-
-      // 11. שומרים את התוכנית בהיסטוריה
-
-      await User.findByIdAndUpdate(userId, {
+    await User.findByIdAndUpdate(
+      userId,
+      {
         $push: {
           coachHistory: {
-            note: note.trim(),
-            plan: coachPlan,
-            createdAt: new Date(),
+            note: cleanNote,
+            plan,
+            createdAt:
+              new Date(),
           },
         },
-      });
+      }
+    );
 
-      // 
-      // 12. מחזירים את התוכנית ל-Frontend
-      // 
+    return res.status(200).json({
+      success: true,
+      plan,
+      toolsUsed,
 
-      return res.status(200).json({
-        success: true,
-        plan: coachPlan,
-        toolsUsed: usedTools,
-      });
-    } catch (error) {
-      // שגיאת שרת אמיתית עוברת ל-error middleware שלך
-      next(error);
-    }
-  },
-
+      ...(fallback && {
+        fallback: true,
+        reason,
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+},
   // קבלת היסטוריית המאמן של המשתמש
   getCoachHistory: async (req, res, next) => {
     try {
