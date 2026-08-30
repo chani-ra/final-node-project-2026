@@ -3,11 +3,10 @@ import { GoogleGenAI } from "@google/genai";
 import User from "../models/users.model.js";
 
 import { dailyGuideSchema } from "../schemas/ai.schemas.js";
-
 import {
-    aiCoachToolDeclarations,
-    aiCoachToolHandlers,
-} from "../tools/aiCoach.tools.js";
+    studentLearningToolDeclarations,
+    studentLearningToolHandlers,
+} from "../tools/studentLearning.tools.js";
 
 import { runAgentTools } from "./agentRunner.js";
 
@@ -167,11 +166,10 @@ Important rules:
             prompt: agentPrompt,
 
             toolDeclarations:
-                aiCoachToolDeclarations,
+                studentLearningToolDeclarations,
 
             toolHandlers:
-                aiCoachToolHandlers,
-
+                studentLearningToolHandlers,
             toolContext: userId,
 
             maxToolCalls: 3,

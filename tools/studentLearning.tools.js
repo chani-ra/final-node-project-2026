@@ -138,13 +138,13 @@ export async function getStudentLearningProgress(userId) {
     courses,
   };
 }
-
-export const aiCoachToolDeclarations = [
+export const studentLearningToolDeclarations = [
   getStudentQuizResultsDeclaration,
   getStudentGrammarHistoryDeclaration,
   getStudentLearningProgressDeclaration,
 ];
-export const aiCoachToolHandlers = {
+
+export const studentLearningToolHandlers = {
   getStudentQuizResults,
   getStudentGrammarHistory,
   getStudentLearningProgress,

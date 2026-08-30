@@ -3,84 +3,84 @@ import { GoogleGenAI } from "@google/genai";
 import { coachPlanSchema } from "../schemas/ai.schemas.js";
 
 import {
-  aiCoachToolDeclarations,
-  aiCoachToolHandlers,
-} from "../tools/aiCoach.tools.js";
+    studentLearningToolDeclarations,
+    studentLearningToolHandlers,
+} from "../tools/studentLearning.tools.js";
 
 import { runAgentTools } from "./agentRunner.js";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+    apiKey: process.env.GEMINI_API_KEY,
 });
 
 function getCoachFallbackPlan() {
-  return {
-    focus: "תרגול קצר להיום",
+    return {
+        focus: "תרגול קצר להיום",
 
-    summary:
-      "כרגע לא ניתן לבצע ניתוח AI מלא, לכן מוצגת תוכנית גיבוי קצרה.",
+        summary:
+            "כרגע לא ניתן לבצע ניתוח AI מלא, לכן מוצגת תוכנית גיבוי קצרה.",
 
-    steps: [
-      "בחרי 5 מילים חדשות מתוך שיעור, שיר או קטע קצר.",
-      "כתבי ליד כל מילה פירוש קצר בעברית.",
-      "כתבי משפט אחד באנגלית עם אחת מהמילים.",
-    ],
+        steps: [
+            "בחרי 5 מילים חדשות מתוך שיעור, שיר או קטע קצר.",
+            "כתבי ליד כל מילה פירוש קצר בעברית.",
+            "כתבי משפט אחד באנגלית עם אחת מהמילים.",
+        ],
 
-    tip:
-      "נסי שוב בעוד כמה דקות לקבלת תוכנית מותאמת אישית מה־AI.",
+        tip:
+            "נסי שוב בעוד כמה דקות לקבלת תוכנית מותאמת אישית מה־AI.",
 
-    encouragement:
-      "גם תרגול קצר בלי AI מקדם אותך. העיקר להמשיך בצעד קטן וברור.",
+        encouragement:
+            "גם תרגול קצר בלי AI מקדם אותך. העיקר להמשיך בצעד קטן וברור.",
 
-    estimatedMinutes: 15,
-  };
+        estimatedMinutes: 15,
+    };
 }
 
 function isAIUnavailableError(error) {
-  const message =
-    error?.message?.toLowerCase() || "";
+    const message =
+        error?.message?.toLowerCase() || "";
 
-  const causeMessage =
-    error?.cause?.message?.toLowerCase() || "";
+    const causeMessage =
+        error?.cause?.message?.toLowerCase() || "";
 
-  const causeCode = error?.cause?.code;
+    const causeCode = error?.cause?.code;
 
-  return (
-    error?.status === 429 ||
-    error?.code === 429 ||
-    message.includes("429") ||
-    message.includes("quota") ||
-    message.includes(
-      "too many requests"
-    ) ||
-    message.includes("fetch failed") ||
-    causeMessage.includes(
-      "connect timeout"
-    ) ||
-    causeCode ===
-      "UND_ERR_CONNECT_TIMEOUT"
-  );
+    return (
+        error?.status === 429 ||
+        error?.code === 429 ||
+        message.includes("429") ||
+        message.includes("quota") ||
+        message.includes(
+            "too many requests"
+        ) ||
+        message.includes("fetch failed") ||
+        causeMessage.includes(
+            "connect timeout"
+        ) ||
+        causeCode ===
+        "UND_ERR_CONNECT_TIMEOUT"
+    );
 }
 
 function parseCoachPlan(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    console.error(
-      "❌ Failed to parse Coach JSON:",
-      text
-    );
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        console.error(
+            "❌ Failed to parse Coach JSON:",
+            text
+        );
 
-    return null;
-  }
+        return null;
+    }
 }
 
 export async function generateCoachAgentPlan({
-  userId,
-  note,
-  userProfile,
+    userId,
+    note,
+    userProfile,
 }) {
-  const prompt = `
+    const prompt = `
 You are an expert English learning coach for Hebrew-speaking students.
 
 Create a short, practical, personalized study plan for today.
@@ -106,37 +106,36 @@ Important rules:
 12. Keep the plan realistic and useful for today.
 `;
 
-  try {
-    const {
-      agentContents,
-      toolsUsed,
-    } = await runAgentTools({
-      ai,
+    try {
+        const {
+            agentContents,
+            toolsUsed,
+        } = await runAgentTools({
+            ai,
 
-      model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash",
 
-      prompt,
+            prompt,
 
-      toolDeclarations:
-        aiCoachToolDeclarations,
+            toolDeclarations:
+                studentLearningToolDeclarations,
 
-      toolHandlers:
-        aiCoachToolHandlers,
+            toolHandlers:
+                studentLearningToolHandlers,
+            toolContext: userId,
 
-      toolContext: userId,
+            maxToolCalls: 3,
+        });
 
-      maxToolCalls: 3,
-    });
+        const finalContents = [
+            ...agentContents,
 
-    const finalContents = [
-      ...agentContents,
+            {
+                role: "user",
 
-      {
-        role: "user",
-
-        parts: [
-          {
-            text: `
+                parts: [
+                    {
+                        text: `
 Now create the final personalized study plan.
 
 Use all relevant information retrieved from the tools.
@@ -145,60 +144,60 @@ Do not request any more tools.
 
 Return the final plan in Hebrew according to the required schema.
 `,
-          },
-        ],
-      },
-    ];
+                    },
+                ],
+            },
+        ];
 
-    const response =
-      await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        const response =
+            await ai.models.generateContent({
+                model: "gemini-2.5-flash",
 
-        contents: finalContents,
+                contents: finalContents,
 
-        config: {
-          responseMimeType:
-            "application/json",
+                config: {
+                    responseMimeType:
+                        "application/json",
 
-          responseSchema:
-            coachPlanSchema,
-        },
-      });
+                    responseSchema:
+                        coachPlanSchema,
+                },
+            });
 
-    const plan = parseCoachPlan(
-      response.text
-    );
+        const plan = parseCoachPlan(
+            response.text
+        );
 
-    if (!plan) {
-      return {
-        plan: getCoachFallbackPlan(),
-        toolsUsed,
-        fallback: true,
-        reason: "parse_error",
-      };
+        if (!plan) {
+            return {
+                plan: getCoachFallbackPlan(),
+                toolsUsed,
+                fallback: true,
+                reason: "parse_error",
+            };
+        }
+
+        return {
+            plan,
+            toolsUsed,
+            fallback: false,
+            reason: null,
+        };
+    } catch (error) {
+        console.error(
+            "❌ Coach Agent error:",
+            error.message || error
+        );
+
+        if (isAIUnavailableError(error)) {
+            return {
+                plan: getCoachFallbackPlan(),
+                toolsUsed: [],
+                fallback: true,
+                reason: "ai_unavailable",
+            };
+        }
+
+        throw error;
     }
-
-    return {
-      plan,
-      toolsUsed,
-      fallback: false,
-      reason: null,
-    };
-  } catch (error) {
-    console.error(
-      "❌ Coach Agent error:",
-      error.message || error
-    );
-
-    if (isAIUnavailableError(error)) {
-      return {
-        plan: getCoachFallbackPlan(),
-        toolsUsed: [],
-        fallback: true,
-        reason: "ai_unavailable",
-      };
-    }
-
-    throw error;
-  }
 }
