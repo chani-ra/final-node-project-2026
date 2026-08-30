@@ -106,7 +106,6 @@ export async function getOrCreateDailyGuide(
     throw error;
   }
 }
-
 export async function refreshDailyGuide(
   userId
 ) {
@@ -118,11 +117,8 @@ export async function refreshDailyGuide(
       dateKey,
     }).lean();
 
-  const generatedGuide =
-    await generateDailyGuide(userId);
-
+  // כבר קיימת תוכנית AI אמיתית להיום
   if (
-    generatedGuide.isFallback &&
     existingGuide &&
     !existingGuide.isFallback
   ) {
@@ -132,6 +128,10 @@ export async function refreshDailyGuide(
       keptExistingGuide: true,
     };
   }
+
+  // אין תוכנית, או שקיימת רק תוכנית fallback
+  const generatedGuide =
+    await generateDailyGuide(userId);
 
   const updatedGuide =
     await DailyGuide.findOneAndUpdate(
