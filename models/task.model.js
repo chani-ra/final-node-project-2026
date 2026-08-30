@@ -87,6 +87,19 @@ const taskSchema = new Schema(
       default: "",
     },
 
+    planGroupId: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
+
+    planTitle: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     submittedAt: {
       type: Date,
       default: null,
@@ -112,5 +125,6 @@ const taskSchema = new Schema(
 );
 
 taskSchema.index({ user: 1, status: 1, createdAt: -1 });
+taskSchema.index({ user: 1, planGroupId: 1 });
 
 export default model("Task", taskSchema);

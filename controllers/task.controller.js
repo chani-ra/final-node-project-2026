@@ -1,4 +1,5 @@
 import StudentTask from "../models/task.model.js";
+import { randomUUID } from "node:crypto";
 
 export const TaskController = {
   // קבלת כל המשימות של המשתמש המחובר
@@ -83,8 +84,18 @@ export const TaskController = {
   // יצירת כמה משימות יחד, מיועד לשלבים של AI Coach
   createManyMyTasks: async (req, res) => {
     try {
-      const { tasks, coachPlanFocus } = req.body;
+      const {
+        tasks,
+        coachPlanFocus,
+        planTitle,
+      } = req.body;
 
+      const planGroupId = randomUUID();
+
+      const safePlanTitle =
+        planTitle?.trim() ||
+        coachPlanFocus?.trim() ||
+        "תוכנית לימוד";
       if (!Array.isArray(tasks) || tasks.length === 0) {
         return res.status(400).json({
           success: false,
@@ -105,6 +116,8 @@ export const TaskController = {
           estimatedTime: task.estimatedTime || "10 דקות",
           rewardXP: Number(task.rewardXP) || 50,
           coachPlanFocus: coachPlanFocus || task.coachPlanFocus || "",
+          planGroupId,
+          planTitle: safePlanTitle,
         }));
 
       if (docs.length === 0) {
