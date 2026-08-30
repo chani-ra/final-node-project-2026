@@ -23,6 +23,34 @@ export function getIsraelDateKey(
   return `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
 }
 
+function buildGuideData({
+  userId,
+  dateKey,
+  generatedGuide,
+}) {
+  return {
+    user: userId,
+    dateKey,
+
+    focus: generatedGuide.focus,
+    reason: generatedGuide.reason,
+    steps: generatedGuide.steps,
+    tip: generatedGuide.tip,
+
+    encouragement:
+      generatedGuide.encouragement,
+
+    estimatedMinutes:
+      generatedGuide.estimatedMinutes,
+
+    toolsUsed:
+      generatedGuide.toolsUsed || [],
+
+    isFallback:
+      generatedGuide.isFallback || false,
+  };
+}
+
 export async function getOrCreateDailyGuide(
   userId
 ) {
@@ -46,28 +74,13 @@ export async function getOrCreateDailyGuide(
 
   try {
     const createdGuide =
-      await DailyGuide.create({
-        user: userId,
-        dateKey,
-
-        focus: generatedGuide.focus,
-        reason: generatedGuide.reason,
-        steps: generatedGuide.steps,
-        tip: generatedGuide.tip,
-
-        encouragement:
-          generatedGuide.encouragement,
-
-        estimatedMinutes:
-          generatedGuide.estimatedMinutes,
-
-        toolsUsed:
-          generatedGuide.toolsUsed || [],
-
-        isFallback:
-          generatedGuide.isFallback ||
-          false,
-      });
+      await DailyGuide.create(
+        buildGuideData({
+          userId,
+          dateKey,
+          generatedGuide,
+        })
+      );
 
     return {
       guide: createdGuide.toObject(),
@@ -92,4 +105,58 @@ export async function getOrCreateDailyGuide(
 
     throw error;
   }
+}
+
+export async function refreshDailyGuide(
+  userId
+) {
+  const dateKey = getIsraelDateKey();
+
+  const existingGuide =
+    await DailyGuide.findOne({
+      user: userId,
+      dateKey,
+    }).lean();
+
+  const generatedGuide =
+    await generateDailyGuide(userId);
+
+  if (
+    generatedGuide.isFallback &&
+    existingGuide &&
+    !existingGuide.isFallback
+  ) {
+    return {
+      guide: existingGuide,
+      refreshed: false,
+      keptExistingGuide: true,
+    };
+  }
+
+  const updatedGuide =
+    await DailyGuide.findOneAndUpdate(
+      {
+        user: userId,
+        dateKey,
+      },
+      {
+        $set: buildGuideData({
+          userId,
+          dateKey,
+          generatedGuide,
+        }),
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+      }
+    ).lean();
+
+  return {
+    guide: updatedGuide,
+    refreshed:
+      !generatedGuide.isFallback,
+    keptExistingGuide: false,
+  };
 }

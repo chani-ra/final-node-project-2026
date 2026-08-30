@@ -5,119 +5,126 @@ import User from "../models/users.model.js";
 import { dailyGuideSchema } from "../schemas/ai.schemas.js";
 
 import {
-  aiCoachToolDeclarations,
-  aiCoachToolHandlers,
+    aiCoachToolDeclarations,
+    aiCoachToolHandlers,
 } from "../tools/aiCoach.tools.js";
 
 import { runAgentTools } from "./agentRunner.js";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+    apiKey: process.env.GEMINI_API_KEY,
 });
 
 function parseAIJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    console.error(
-      "❌ Failed to parse Daily Guide JSON:",
-      text
-    );
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        console.error(
+            "❌ Failed to parse Daily Guide JSON:",
+            text
+        );
 
-    return null;
-  }
+        return null;
+    }
 }
 
-function isRateLimitError(error) {
-  return (
-    error?.status === 429 ||
-    error?.code === 429 ||
-    error?.message?.includes("429") ||
-    error?.message
-      ?.toLowerCase()
-      .includes("too many requests") ||
-    error?.message
-      ?.toLowerCase()
-      .includes("quota")
-  );
+function isAIUnavailableError(error) {
+    const message =
+        error?.message?.toLowerCase() || "";
+
+    const causeMessage =
+        error?.cause?.message?.toLowerCase() || "";
+
+    const causeCode = error?.cause?.code;
+
+    return (
+        error?.status === 429 ||
+        error?.code === 429 ||
+        message.includes("429") ||
+        message.includes("too many requests") ||
+        message.includes("quota") ||
+        message.includes("fetch failed") ||
+        causeMessage.includes("connect timeout") ||
+        causeCode === "UND_ERR_CONNECT_TIMEOUT"
+    );
 }
 
 function getDailyGuideFallback() {
-  return {
-    focus: "שמירה על רצף הלמידה",
+    return {
+        focus: "שמירה על רצף הלמידה",
 
-    reason:
-      "כרגע לא ניתן לבצע ניתוח AI מלא, לכן נבנה עבורך מסלול קצר ובטוח להמשך תרגול.",
+        reason:
+            "כרגע לא ניתן לבצע ניתוח AI מלא, לכן נבנה עבורך מסלול קצר ובטוח להמשך תרגול.",
 
-    steps: [
-      {
-        title: "חזרה על מילים",
-        description:
-          "חזרי על כמה מילים שכבר למדת וחזקי את הזיכרון שלהן.",
-        action: "OPEN_DICTIONARY",
-        estimatedMinutes: 5,
-      },
+        steps: [
+            {
+                title: "חזרה על מילים",
+                description:
+                    "חזרי על כמה מילים שכבר למדת וחזקי את הזיכרון שלהן.",
+                action: "OPEN_DICTIONARY",
+                estimatedMinutes: 5,
+            },
 
-      {
-        title: "תרגול כתיבה קצר",
-        description:
-          "כתבי כמה משפטים קצרים באנגלית כדי לשמור על רצף התרגול.",
-        action: "OPEN_WRITING",
-        estimatedMinutes: 10,
-      },
+            {
+                title: "תרגול כתיבה קצר",
+                description:
+                    "כתבי כמה משפטים קצרים באנגלית כדי לשמור על רצף התרגול.",
+                action: "OPEN_WRITING",
+                estimatedMinutes: 10,
+            },
 
-      {
-        title: "המשך למידה",
-        description:
-          "המשיכי בפעילות הבאה באחד הקורסים שלך.",
-        action: "OPEN_COURSES",
-        estimatedMinutes: 10,
-      },
-    ],
+            {
+                title: "המשך למידה",
+                description:
+                    "המשיכי בפעילות הבאה באחד הקורסים שלך.",
+                action: "OPEN_COURSES",
+                estimatedMinutes: 10,
+            },
+        ],
 
-    tip:
-      "גם תרגול קצר ועקבי עוזר לשמור על התקדמות.",
+        tip:
+            "גם תרגול קצר ועקבי עוזר לשמור על התקדמות.",
 
-    encouragement:
-      "העיקר להמשיך ברצף ולהתקדם צעד אחד בכל פעם.",
+        encouragement:
+            "העיקר להמשיך ברצף ולהתקדם צעד אחד בכל פעם.",
 
-    estimatedMinutes: 25,
+        estimatedMinutes: 25,
 
-    toolsUsed: [],
+        toolsUsed: [],
 
-    isFallback: true,
-  };
+        isFallback: true,
+    };
 }
 
 export async function generateDailyGuide(
-  userId
+    userId
 ) {
-  const user = await User.findById(userId)
-    .select(
-      "username englishLevel favoriteHobbies expectations"
-    )
-    .lean();
+    const user = await User.findById(userId)
+        .select(
+            "username englishLevel favoriteHobbies expectations"
+        )
+        .lean();
 
-  if (!user) {
-    const error = new Error("User not found");
-    error.status = 404;
-    throw error;
-  }
+    if (!user) {
+        const error = new Error("User not found");
+        error.status = 404;
+        throw error;
+    }
 
-  const userProfile = {
-    username: user.username || "תלמידה",
+    const userProfile = {
+        username: user.username || "תלמידה",
 
-    englishLevel:
-      user.englishLevel || "beginner",
+        englishLevel:
+            user.englishLevel || "beginner",
 
-    favoriteHobbies:
-      user.favoriteHobbies || [],
+        favoriteHobbies:
+            user.favoriteHobbies || [],
 
-    expectations:
-      user.expectations || [],
-  };
+        expectations:
+            user.expectations || [],
+    };
 
-  const agentPrompt = `
+    const agentPrompt = `
 You are a proactive Daily English Learning Guide.
 
 Your job is to decide what this student should focus on TODAY.
@@ -148,37 +155,37 @@ Important rules:
 - Do not ask the student what they want to study.
 `;
 
-  try {
-    const {
-      agentContents,
-      toolsUsed,
-    } = await runAgentTools({
-      ai,
+    try {
+        const {
+            agentContents,
+            toolsUsed,
+        } = await runAgentTools({
+            ai,
 
-      model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash",
 
-      prompt: agentPrompt,
+            prompt: agentPrompt,
 
-      toolDeclarations:
-        aiCoachToolDeclarations,
+            toolDeclarations:
+                aiCoachToolDeclarations,
 
-      toolHandlers:
-        aiCoachToolHandlers,
+            toolHandlers:
+                aiCoachToolHandlers,
 
-      toolContext: userId,
+            toolContext: userId,
 
-      maxToolCalls: 3,
-    });
+            maxToolCalls: 3,
+        });
 
-    const finalContents = [
-      ...agentContents,
+        const finalContents = [
+            ...agentContents,
 
-      {
-        role: "user",
+            {
+                role: "user",
 
-        parts: [
-          {
-            text: `
+                parts: [
+                    {
+                        text: `
 Now create the final Daily Guide.
 
 Use all relevant student information retrieved from the tools.
@@ -197,50 +204,49 @@ Requirements:
 - Keep the plan realistic and useful for one day.
 - Do not request any more tools.
 `,
-          },
-        ],
-      },
-    ];
+                    },
+                ],
+            },
+        ];
 
-    const finalResponse =
-      await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        const finalResponse =
+            await ai.models.generateContent({
+                model: "gemini-2.5-flash",
 
-        contents: finalContents,
+                contents: finalContents,
 
-        config: {
-          responseMimeType:
-            "application/json",
+                config: {
+                    responseMimeType:
+                        "application/json",
 
-          responseSchema:
-            dailyGuideSchema,
-        },
-      });
+                    responseSchema:
+                        dailyGuideSchema,
+                },
+            });
 
-    const guide = parseAIJson(
-      finalResponse.text
-    );
+        const guide = parseAIJson(
+            finalResponse.text
+        );
 
-    if (!guide) {
-      throw new Error(
-        "Daily Guide returned invalid JSON"
-      );
+        if (!guide) {
+            throw new Error(
+                "Daily Guide returned invalid JSON"
+            );
+        }
+
+        return {
+            ...guide,
+            toolsUsed,
+            isFallback: false,
+        };
+    } catch (error) {
+        if (isAIUnavailableError(error)) {
+            console.warn(
+                "⚠️ Daily Guide AI unavailable - using fallback"
+            );
+            return getDailyGuideFallback();
+        }
+
+        throw error;
     }
-
-    return {
-      ...guide,
-      toolsUsed,
-      isFallback: false,
-    };
-  } catch (error) {
-    if (isRateLimitError(error)) {
-      console.warn(
-        "⚠️ Daily Guide Gemini quota reached - using fallback"
-      );
-
-      return getDailyGuideFallback();
-    }
-
-    throw error;
-  }
 }

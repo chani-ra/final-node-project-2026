@@ -1,12 +1,39 @@
-import { getOrCreateDailyGuide } from "../service/dailyGuide.service.js";
+import {
+  getOrCreateDailyGuide,
+  refreshDailyGuide,
+} from "../service/dailyGuide.service.js";
 
 const DailyGuideController = {
-  getTodayGuide: async (req, res, next) => {
+  getTodayGuide: async (
+    req,
+    res,
+    next
+  ) => {
     try {
-      const userId = req.user.id;
-
       const result =
-        await getOrCreateDailyGuide(userId);
+        await getOrCreateDailyGuide(
+          req.user.id
+        );
+
+      return res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  refreshTodayGuide: async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const result =
+        await refreshDailyGuide(
+          req.user.id
+        );
 
       return res.status(200).json({
         success: true,

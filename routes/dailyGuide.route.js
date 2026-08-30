@@ -14,4 +14,10 @@ router.get(
   DailyGuideController.getTodayGuide
 );
 
+router.post(
+  "/refresh",
+  authenticateToken,
+  DailyGuideController.refreshTodayGuide
+);
+
 export default router;
