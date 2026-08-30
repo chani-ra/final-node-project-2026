@@ -23,6 +23,7 @@ import chatConversationRoutes from './routes/chatConversation.route.js';
 import messageRoutes from './routes/message.route.js';
 import reviewRoute from './routes/review.route.js';
 import profileRoutes from './routes/profile.route.js';
+import dailyGuideRoutes from "./routes/dailyGuide.route.js";
 import aiRoutes from './routes/ai.route.js';
 import courseProgressRoutes from './routes/courseProgress.route.js';
 import { seedDefaultData } from './seedDefaultData.js';
@@ -67,6 +68,7 @@ app.use("/chat-conversations", chatConversationRoutes);
 app.use("/messages", messageRoutes);
 app.use("/reviews", reviewRoute);
 app.use('/profile', profileRoutes);
+app.use("/ai/daily-guide",dailyGuideRoutes);
 app.use('/ai', aiRoutes);
 app.use("/course-progress", courseProgressRoutes);
 
