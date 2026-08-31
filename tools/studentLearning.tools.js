@@ -2,6 +2,7 @@ import { Type } from "@google/genai";
 
 import User from "../models/users.model.js";
 import CourseProgress from "../models/courseProgress.model.js";
+import StudentTask from "../models/task.model.js";
 
 export const getStudentQuizResultsDeclaration = {
   name: "getStudentQuizResults",
@@ -32,6 +33,18 @@ export const getStudentLearningProgressDeclaration = {
 
   description:
     "Gets the authenticated student's recent course learning progress. Use this tool when course progress, completed learning activities, study activity, or what the student should study next is relevant.",
+
+  parameters: {
+    type: Type.OBJECT,
+    properties: {},
+  },
+};
+
+export const getStudentTasksDeclaration = {
+  name: "getStudentTasks",
+
+  description:
+    "Gets the authenticated student's current and recent tasks. Use this tool when pending work, assignments, AI coach tasks, teacher tasks, due dates, completed tasks, or deciding what the student should work on next is relevant.",
 
   parameters: {
     type: Type.OBJECT,
@@ -138,14 +151,119 @@ export async function getStudentLearningProgress(userId) {
     courses,
   };
 }
+
+export async function getStudentTasks(
+  userId
+) {
+  const tasks = await StudentTask.find({
+    user: userId,
+  })
+    .sort({
+      createdAt: -1,
+    })
+    .limit(20)
+    .lean();
+
+  const pendingTasks = tasks
+    .filter(
+      (task) =>
+        task.status === "pending" ||
+        task.status === "review"
+    )
+    .slice(0, 8)
+    .map((task) => ({
+      title: task.title,
+
+      description:
+        task.description || "",
+
+      status: task.status,
+
+      type: task.type,
+
+      source: task.source,
+
+      difficulty:
+        task.difficulty,
+
+      estimatedTime:
+        task.estimatedTime,
+
+      dueDate:
+        task.dueDate || null,
+
+      coachPlanFocus:
+        task.coachPlanFocus || "",
+
+      planGroupId:
+        task.planGroupId || "",
+
+      planTitle:
+        task.planTitle || "",
+
+      createdAt:
+        task.createdAt,
+    }));
+
+  const recentlyCompleted = tasks
+    .filter(
+      (task) =>
+        task.status === "completed"
+    )
+    .slice(0, 5)
+    .map((task) => ({
+      title: task.title,
+
+      type: task.type,
+
+      source: task.source,
+
+      coachPlanFocus:
+        task.coachPlanFocus || "",
+
+      completedAt:
+        task.completedAt || null,
+    }));
+
+  return {
+    totalRecentTasks:
+      tasks.length,
+
+    pendingCount:
+      tasks.filter(
+        (task) =>
+          task.status === "pending"
+      ).length,
+
+    reviewCount:
+      tasks.filter(
+        (task) =>
+          task.status === "review"
+      ).length,
+
+    completedCount:
+      tasks.filter(
+        (task) =>
+          task.status === "completed"
+      ).length,
+
+    pendingTasks,
+
+    recentlyCompleted,
+  };
+}
+
 export const studentLearningToolDeclarations = [
   getStudentQuizResultsDeclaration,
   getStudentGrammarHistoryDeclaration,
   getStudentLearningProgressDeclaration,
+  getStudentTasksDeclaration,
+
 ];
 
 export const studentLearningToolHandlers = {
   getStudentQuizResults,
   getStudentGrammarHistory,
   getStudentLearningProgress,
+  getStudentTasks,
 };
