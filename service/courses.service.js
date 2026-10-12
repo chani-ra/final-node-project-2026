@@ -143,7 +143,10 @@ export const CourseService = {
       .populate('lessons')
       .populate('songs')
       .populate('exercises')
-      .populate('quizzes')
+      .populate({
+        path: 'quizzes',
+        select: '-questions.correctAnswer -questions.explanation',
+      })
       .sort({ createdAt: -1 });
 
     return courses
@@ -268,13 +271,13 @@ export const CourseService = {
     const quizPopulate =
       isAdmin || isTeacherOwner
         ? {
-            path: 'quizzes',
-          }
+          path: 'quizzes',
+        }
         : {
-            path: 'quizzes',
-            select:
-              '-questions.correctAnswer -questions.explanation',
-          };
+          path: 'quizzes',
+          select:
+            '-questions.correctAnswer -questions.explanation',
+        };
 
     await course.populate([
       {
@@ -529,7 +532,7 @@ export const CourseService = {
         enrolledCourseIds.length,
       pages: Math.ceil(
         enrolledCourseIds.length /
-          limit
+        limit
       ),
       currentPage: page,
     };
