@@ -3,6 +3,7 @@ import User from "../models/users.model.js";
 import Course from "../models/course.model.js";
 import { EmailService } from "../service/emailService.js";
 import { markQuizCompleted } from "../service/progress.service.js";
+import { cleanupContentReferences } from "../service/contentCleanup.service.js";
 
 export const QuizController = {
   // יצירת בוחן חדש
@@ -311,48 +312,39 @@ export const QuizController = {
   },
 
   // מחיקת בוחן
-  deleteQuiz: async (req, res) => {
+  deleteQuiz: async (req, res, next) => {
     try {
       const { quizId } = req.params;
-      const teacherId = req.user.id;
+      const userId = req.user.id;
 
       const quiz = await Quiz.findById(quizId);
 
       if (!quiz) {
         return res.status(404).json({
+          success: false,
           message: "בוחן לא נמצא",
         });
       }
 
-      const isOwner =
-        quiz.createdBy.toString() === teacherId.toString();
+      const isOwner = quiz.createdBy.toString() === userId.toString();
       const isAdmin = req.user.role === "admin";
 
       if (!isOwner && !isAdmin) {
         return res.status(403).json({
-          message: "אפשר למחוק רק בחנים שאת יצרת",
+          success: false,
+          message: "אפשר למחוק רק בחנים שיצרת",
         });
       }
 
-      if (quiz.courseId) {
-        await Course.findByIdAndUpdate(quiz.courseId, {
-          $pull: {
-            quizzes: quiz._id,
-          },
-        });
-      }
-
-      await Quiz.findByIdAndDelete(quizId);
+      await cleanupContentReferences("quiz", quiz._id);
+      await Quiz.findByIdAndDelete(quiz._id);
 
       return res.status(200).json({
+        success: true,
         message: "הבוחן נמחק בהצלחה",
       });
     } catch (error) {
-      console.error("Error deleting quiz:", error);
-
-      return res.status(400).json({
-        message: error.message,
-      });
+      next(error);
     }
   },
 
@@ -612,9 +604,9 @@ export const QuizController = {
       quiz.questions.forEach((question, index) => {
         const userAnswerObj = Array.isArray(answers)
           ? answers.find(
-              (answer) =>
-                Number(answer.questionIndex) === index
-            )
+            (answer) =>
+              Number(answer.questionIndex) === index
+          )
           : null;
 
         const userAnswer = userAnswerObj
@@ -654,8 +646,8 @@ export const QuizController = {
       const percentage =
         totalPoints > 0
           ? Math.round(
-              (totalScore / totalPoints) * 100
-            )
+            (totalScore / totalPoints) * 100
+          )
           : 0;
 
       const passed =
@@ -786,12 +778,12 @@ export const QuizController = {
         averageScore:
           quizResults.length > 0
             ? Math.round(
-                quizResults.reduce(
-                  (sum, result) =>
-                    sum + (result.percentage || 0),
-                  0
-                ) / quizResults.length
-              )
+              quizResults.reduce(
+                (sum, result) =>
+                  sum + (result.percentage || 0),
+                0
+              ) / quizResults.length
+            )
             : 0,
       });
     } catch (error) {
