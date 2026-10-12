@@ -3,6 +3,8 @@ import mongoose from 'mongoose';
 import fs from 'fs';
 import path from 'path';
 
+import { cleanupContentReferences } from '../service/contentCleanup.service.js';
+
 const safeJsonParseArray = (value) => {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -341,18 +343,24 @@ export const LessonController = {
   },
 
   // מחיקת שיעור
-  deleteLesson: async (req, res) => {
+  deleteLesson: async (req, res, next) => {
     const { lessonId } = req.params;
 
     try {
       if (!mongoose.Types.ObjectId.isValid(lessonId)) {
-        return res.status(400).json({ message: 'ID של שיעור לא תקין' });
+        return res.status(400).json({
+          success: false,
+          message: 'ID של שיעור לא תקין',
+        });
       }
 
       const lesson = await Lesson.findById(lessonId);
 
       if (!lesson) {
-        return res.status(404).json({ message: 'שיעור לא נמצא' });
+        return res.status(404).json({
+          success: false,
+          message: 'שיעור לא נמצא',
+        });
       }
 
       const isOwner = lesson.instructorId.toString() === req.user.id.toString();
@@ -360,11 +368,13 @@ export const LessonController = {
 
       if (!isOwner && !isAdmin) {
         return res.status(403).json({
+          success: false,
           message: 'אין לך הרשאה למחוק שיעור זה',
         });
       }
 
-      await Lesson.findByIdAndDelete(lessonId);
+      await cleanupContentReferences('lesson', lesson._id);
+      await Lesson.findByIdAndDelete(lesson._id);
 
       if (lesson.videoFileName) {
         const filePath = path.join('uploads/videos', lesson.videoFileName);
@@ -381,8 +391,7 @@ export const LessonController = {
         message: 'שיעור נמחק בהצלחה',
       });
     } catch (error) {
-      console.error('Error deleting lesson:', error);
-      return res.status(500).json({ message: error.message });
+      next(error);
     }
   },
 
