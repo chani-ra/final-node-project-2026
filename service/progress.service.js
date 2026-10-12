@@ -111,39 +111,48 @@ async function getCourseOrThrow(courseId) {
   return {
     ...course,
 
-    lessons: course.lessons || [],
-    songs: course.songs || [],
+    lessons:
+      course.lessons || [],
+
+    songs:
+      course.songs || [],
+
     exercises:
       course.exercises || [],
-    quizzes: course.quizzes || [],
+
+    quizzes:
+      course.quizzes || [],
   };
 }
 
-export async function getOrCreateProgress(
+async function findOrCreateProgress(
   userId,
   courseId
 ) {
-  await getCourseOrThrow(courseId);
-
   try {
     return await CourseProgress.findOneAndUpdate(
       {
         user: userId,
         course: courseId,
       },
+
       {
         $setOnInsert: {
           user: userId,
           course: courseId,
+
           completedLessons: [],
           completedSongs: [],
           completedExercises: [],
           completedQuizzes: [],
+
           progressPercent: 0,
+
           lastActivityAt:
             new Date(),
         },
       },
+
       {
         new: true,
         upsert: true,
@@ -168,28 +177,106 @@ export async function getOrCreateProgress(
   }
 }
 
+export async function getCourseProgress(
+  userId,
+  courseId
+) {
+  await getCourseOrThrow(courseId);
+
+  const progress =
+    await CourseProgress.findOne({
+      user: userId,
+      course: courseId,
+    }).lean();
+
+  if (progress) {
+    return progress;
+  }
+
+  return {
+    course: courseId,
+    completedLessons: [],
+    completedSongs: [],
+    completedExercises: [],
+    completedQuizzes: [],
+    progressPercent: 0,
+  };
+}
+
+export async function getCoursesProgressSummary(
+  userId
+) {
+  const progressList =
+    await CourseProgress.find({
+      user: userId,
+    })
+      .sort({
+        lastActivityAt: -1,
+      })
+      .lean();
+
+  const totalCourses =
+    progressList.length;
+
+  const averageProgress =
+    totalCourses > 0
+      ? Math.round(
+          progressList.reduce(
+            (sum, item) =>
+              sum +
+              (item.progressPercent || 0),
+            0
+          ) / totalCourses
+        )
+      : 0;
+
+  const completedCourses =
+    progressList.filter(
+      (item) =>
+        item.progressPercent >= 100
+    ).length;
+
+  return {
+    totalCourses,
+    completedCourses,
+    averageProgress,
+    progressList,
+  };
+}
+
+export async function getOrCreateProgress(
+  userId,
+  courseId
+) {
+  await getCourseOrThrow(courseId);
+
+  return findOrCreateProgress(
+    userId,
+    courseId
+  );
+}
+
 export async function recalculateProgress(
   userId,
   courseId
 ) {
-  const [course, progress] =
-    await Promise.all([
-      getCourseOrThrow(courseId),
+  const course =
+    await getCourseOrThrow(courseId);
 
-      getOrCreateProgress(
-        userId,
-        courseId
-      ),
-    ]);
+  const progress =
+    await findOrCreateProgress(
+      userId,
+      courseId
+    );
 
-  const progressPercent =
+  progress.progressPercent =
     calculateProgressPercent({
       progress,
       course,
     });
 
-  progress.progressPercent =
-    progressPercent;
+  progress.lastActivityAt =
+    new Date();
 
   await progress.save();
 
@@ -216,7 +303,7 @@ export async function setCourseItemCompletion({
   if (!itemId) {
     throw createError(
       400,
-      "חסר מזהה פריט"
+      "חסר itemId"
     );
   }
 
@@ -243,7 +330,7 @@ export async function setCourseItemCompletion({
   }
 
   const progress =
-    await getOrCreateProgress(
+    await findOrCreateProgress(
       userId,
       courseId
     );
@@ -251,9 +338,10 @@ export async function setCourseItemCompletion({
   const progressField =
     config.progressField;
 
-  const currentIds = normalizeIds(
-    progress[progressField]
-  );
+  const currentIds =
+    normalizeIds(
+      progress[progressField]
+    );
 
   const alreadyCompleted =
     currentIds.includes(
@@ -351,4 +439,18 @@ export function markQuizCompleted(
     itemId: quizId,
     completed: true,
   });
+}
+
+export async function getUserProgressList(userId) {
+  return CourseProgress.find({
+    user: userId,
+  })
+    .populate(
+      "course",
+      "title category level"
+    )
+    .sort({
+      lastActivityAt: -1,
+    })
+    .lean();
 }
