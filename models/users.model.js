@@ -81,51 +81,7 @@ const userSchema = new Schema(
       },
     ],
 
-    courseProgress: [
-      {
-        course: {
-          type: Schema.Types.ObjectId,
-          ref: "Course",
-        },
-        completedLessons: [
-          {
-            type: Schema.Types.ObjectId,
-            ref: "Lesson",
-          },
-        ],
-        completedExercises: [
-          {
-            type: Schema.Types.ObjectId,
-            ref: "Exercise",
-          },
-        ],
-        completedSongs: [
-          {
-            type: Schema.Types.ObjectId,
-            ref: "song",
-          },
-        ],
-        currentLesson: {
-          type: Schema.Types.ObjectId,
-          ref: "Lesson",
-        },
-        progress: {
-          type: Number,
-          min: 0,
-          max: 100,
-          default: 0,
-        },
-        startedAt: {
-          type: Date,
-          default: Date.now,
-        },
-        lastAccessedAt: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
-
+   
     quizResults: [
       {
         quiz: {
