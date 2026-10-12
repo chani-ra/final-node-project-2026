@@ -124,63 +124,19 @@ export const CourseController = {
       });
     }
   },
-
-  getCourseById: async (req, res) => {
+  getCourseById: async (req, res, next) => {
     try {
-      const { courseId } = req.params;
+      const course = await CourseService.getCourseById(
+        req.params.courseId,
+        req.user
+      );
 
-      const course = await CourseService.getCourseById(courseId);
-
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         course,
       });
     } catch (error) {
-      res.status(404).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  updateCourse: async (req, res) => {
-    try {
-      const { courseId } = req.params;
-
-      const updatedCourse = await CourseService.updateCourse(
-        courseId,
-        req.body,
-        req.user.id
-      );
-
-      res.status(200).json({
-        success: true,
-        message: 'הקורס עודכן בהצלחה',
-        course: updatedCourse,
-      });
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  deleteCourse: async (req, res) => {
-    try {
-      const { courseId } = req.params;
-
-      const result = await CourseService.deleteCourse(courseId, req.user.id);
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
-      });
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      next(error);
     }
   },
 
@@ -309,92 +265,92 @@ export const CourseController = {
   },
 
   refreshPersonalizedCourse: async (req, res) => {
-  try {
-    const { courseId } = req.params;
+    try {
+      const { courseId } = req.params;
 
-    const result = await PersonalizedCourseService.refreshPersonalizedCourse(
-      courseId,
-      req.user.id
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "המסלול האישי רוענן בהצלחה",
-      course: result.course,
-      selected: {
-        lessons: result.selected.lessons.length,
-        songs: result.selected.songs.length,
-        exercises: result.selected.exercises.length,
-        quizzes: result.selected.quizzes.length,
-      },
-      aiReason: result.aiReason,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-},
-
-createPersonalizedCourse: async (req, res) => {
-  try {
-    const { englishLevel, favoriteHobbies, expectations, customTitle } = req.body;
-
-    const allowedLevels = ["beginner", "intermediate", "advanced"];
-    const allowedHobbies = ["art_music", "sports", "movies", "books"];
-    const allowedExpectations = [
-      "grammar",
-      "fluent_speaking",
-      "confidence",
-      "vocabulary",
-    ];
-
-    if (englishLevel && !allowedLevels.includes(englishLevel)) {
-      return res.status(400).json({
-        success: false,
-        message: "רמת אנגלית לא תקינה",
-      });
-    }
-
-    const validHobbies = Array.isArray(favoriteHobbies)
-      ? favoriteHobbies.filter((item) => allowedHobbies.includes(item))
-      : [];
-
-    const validExpectations = Array.isArray(expectations)
-      ? expectations.filter((item) => allowedExpectations.includes(item))
-      : [];
-
-    const result =
-      await PersonalizedCourseService.createAdditionalPersonalizedCourse(
-        req.user.id,
-        {
-          englishLevel,
-          favoriteHobbies: validHobbies,
-          expectations: validExpectations,
-          customTitle,
-        }
+      const result = await PersonalizedCourseService.refreshPersonalizedCourse(
+        courseId,
+        req.user.id
       );
 
-    res.status(201).json({
-      success: true,
-      message: "קורס אישי נוסף נוצר בהצלחה",
-      course: result.course,
-      selected: {
-        lessons: result.selected.lessons.length,
-        songs: result.selected.songs.length,
-        exercises: result.selected.exercises.length,
-        quizzes: result.selected.quizzes.length,
-      },
-      aiReason: result.aiReason,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-},
+      res.status(200).json({
+        success: true,
+        message: "המסלול האישי רוענן בהצלחה",
+        course: result.course,
+        selected: {
+          lessons: result.selected.lessons.length,
+          songs: result.selected.songs.length,
+          exercises: result.selected.exercises.length,
+          quizzes: result.selected.quizzes.length,
+        },
+        aiReason: result.aiReason,
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  createPersonalizedCourse: async (req, res) => {
+    try {
+      const { englishLevel, favoriteHobbies, expectations, customTitle } = req.body;
+
+      const allowedLevels = ["beginner", "intermediate", "advanced"];
+      const allowedHobbies = ["art_music", "sports", "movies", "books"];
+      const allowedExpectations = [
+        "grammar",
+        "fluent_speaking",
+        "confidence",
+        "vocabulary",
+      ];
+
+      if (englishLevel && !allowedLevels.includes(englishLevel)) {
+        return res.status(400).json({
+          success: false,
+          message: "רמת אנגלית לא תקינה",
+        });
+      }
+
+      const validHobbies = Array.isArray(favoriteHobbies)
+        ? favoriteHobbies.filter((item) => allowedHobbies.includes(item))
+        : [];
+
+      const validExpectations = Array.isArray(expectations)
+        ? expectations.filter((item) => allowedExpectations.includes(item))
+        : [];
+
+      const result =
+        await PersonalizedCourseService.createAdditionalPersonalizedCourse(
+          req.user.id,
+          {
+            englishLevel,
+            favoriteHobbies: validHobbies,
+            expectations: validExpectations,
+            customTitle,
+          }
+        );
+
+      res.status(201).json({
+        success: true,
+        message: "קורס אישי נוסף נוצר בהצלחה",
+        course: result.course,
+        selected: {
+          lessons: result.selected.lessons.length,
+          songs: result.selected.songs.length,
+          exercises: result.selected.exercises.length,
+          quizzes: result.selected.quizzes.length,
+        },
+        aiReason: result.aiReason,
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
 };
 
 export default CourseController;

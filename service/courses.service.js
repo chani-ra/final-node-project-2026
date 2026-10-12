@@ -166,12 +166,10 @@ export const CourseService = {
   },
 
   getCourseById: async (courseId, requestingUser) => {
-    const course = await Course.findById(courseId)
-      .populate('instructorId', 'username')
-      .populate('lessons')
-      .populate('songs')
-      .populate('exercises')
-      .populate('quizzes');
+    const course = await Course.findById(courseId).populate(
+      'instructorId',
+      'username'
+    );
 
     if (!course) {
       const error = new Error('קורס לא נמצא');
@@ -180,6 +178,7 @@ export const CourseService = {
     }
 
     const userId = requestingUser.id.toString();
+    const role = requestingUser.role;
 
     const instructorId =
       course.instructorId?._id?.toString() ||
@@ -187,22 +186,23 @@ export const CourseService = {
 
     const createdForId = course.createdFor?.toString();
 
-    const isAdmin = requestingUser.role === 'admin';
-    const isInstructor = instructorId === userId;
-    const isOwner = createdForId === userId;
+    const isAdmin = role === 'admin';
+    const isTeacherOwner =
+      role === 'teacher' && instructorId === userId;
+
+    const isPersonalCourseOwner = createdForId === userId;
 
     const isEnrolled = (course.enrolledStudents || []).some(
       (studentId) => studentId.toString() === userId
     );
 
-    const canViewCourse =
-      course.isPublic ||
+    const hasFullAccess =
       isAdmin ||
-      isInstructor ||
-      isOwner ||
+      isTeacherOwner ||
+      isPersonalCourseOwner ||
       isEnrolled;
 
-    if (!canViewCourse) {
+    if (!course.isPublic && !hasFullAccess) {
       const error = new Error('אין לך הרשאה לצפות בקורס זה');
       error.status = 403;
       throw error;
@@ -215,62 +215,53 @@ export const CourseService = {
 
     course.totalViews = (course.totalViews || 0) + 1;
 
+    // קורס ציבורי שהתלמידה עדיין לא נרשמה אליו:
+    // מחזירים Preview בלבד.
+    if (course.isPublic && !hasFullAccess) {
+      return {
+        _id: course._id,
+        title: course.title,
+        description: course.description,
+        category: course.category,
+        level: course.level,
+        rating: course.rating || 0,
+        instructor: course.instructorId,
+        totalViews: course.totalViews,
+        access: 'preview',
+        isEnrolled: false,
+
+        contentSummary: {
+          lessons: course.lessons?.length || 0,
+          songs: course.songs?.length || 0,
+          exercises: course.exercises?.length || 0,
+          quizzes: course.quizzes?.length || 0,
+        },
+      };
+    }
+
+    const quizPopulate =
+      isAdmin || isTeacherOwner
+        ? { path: 'quizzes' }
+        : {
+          path: 'quizzes',
+          select: '-questions.correctAnswer -questions.explanation',
+        };
+
+    await course.populate([
+      { path: 'lessons' },
+      { path: 'songs' },
+      { path: 'exercises' },
+      quizPopulate,
+    ]);
+
     const safeCourse = course.toObject();
 
-    // רשימת הנרשמים היא מידע פנימי ולא נשלחת במסלול הרגיל.
     delete safeCourse.enrolledStudents;
 
+    safeCourse.access = 'full';
+    safeCourse.isEnrolled = isEnrolled || isPersonalCourseOwner;
+
     return safeCourse;
-  },
-
-  updateCourse: async (courseId, courseData, userId) => {
-    const course = await Course.findById(courseId);
-
-    if (!course) {
-      const error = new Error('קורס לא נמצא');
-      error.status = 404;
-      throw error;
-    }
-
-    if (course.instructorId.toString() !== userId.toString()) {
-      const error = new Error('אתה לא מורשה לערוך קורס זה');
-      error.status = 403;
-      throw error;
-    }
-
-    return Course.findByIdAndUpdate(
-      courseId,
-      {
-        ...courseData,
-        updatedAt: Date.now(),
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
-  },
-
-  deleteCourse: async (courseId, userId) => {
-    const course = await Course.findById(courseId);
-
-    if (!course) {
-      const error = new Error('קורס לא נמצא');
-      error.status = 404;
-      throw error;
-    }
-
-    if (course.instructorId.toString() !== userId.toString()) {
-      const error = new Error('אתה לא מורשה למחוק קורס זה');
-      error.status = 403;
-      throw error;
-    }
-
-    await Course.findByIdAndDelete(courseId);
-
-    return {
-      message: 'קורס נמחק בהצלחה',
-    };
   },
 
   enrollStudentInCourse: async (courseId, studentId) => {
