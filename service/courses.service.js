@@ -310,45 +310,58 @@ export const CourseService = {
     courseData,
     requestingUser
   ) => {
-    const course =
-      await Course.findById(courseId);
+    const course = await Course.findById(courseId);
 
     if (!course) {
-      const error =
-        new Error('קורס לא נמצא');
-
+      const error = new Error('קורס לא נמצא');
       error.status = 404;
       throw error;
     }
 
-    const isAdmin =
-      requestingUser.role === 'admin';
+    const isAdmin = requestingUser.role === 'admin';
 
     const isInstructor =
-      course.instructorId.toString() ===
-      requestingUser.id.toString();
+      requestingUser.role === 'teacher' &&
+      course.instructorId.toString() === requestingUser.id.toString();
 
     if (!isAdmin && !isInstructor) {
-      const error =
-        new Error(
-          'אתה לא מורשה לערוך קורס זה'
-        );
-
+      const error = new Error('אתה לא מורשה לערוך קורס זה');
       error.status = 403;
       throw error;
     }
 
-    return Course.findByIdAndUpdate(
-      courseId,
-      {
-        ...courseData,
-        updatedAt: Date.now(),
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
+    const allowedFields = [
+      'title',
+      'description',
+      'category',
+      'level',
+      'isPublic',
+    ];
+
+    const updateData = Object.fromEntries(
+      Object.entries(courseData).filter(([key]) =>
+        allowedFields.includes(key)
+      )
     );
+
+    if (updateData.title !== undefined) {
+      updateData.title = updateData.title.trim();
+    }
+
+    if (updateData.description !== undefined) {
+      updateData.description = updateData.description.trim();
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      const error = new Error('לא נשלחו שדות מותרים לעדכון');
+      error.status = 400;
+      throw error;
+    }
+
+    return Course.findByIdAndUpdate(courseId, updateData, {
+      new: true,
+      runValidators: true,
+    });
   },
 
   deleteCourse: async (

@@ -66,12 +66,9 @@ export const CourseController = {
         category,
         level,
         isPublic,
-        createdFor,
-        createdByAI,
-        aiReason,
       } = req.body;
 
-      if (!title || !category) {
+      if (!title?.trim() || !category) {
         return res.status(400).json({
           success: false,
           message: 'שם קורס וקטגוריה הם שדות חובה',
@@ -80,19 +77,16 @@ export const CourseController = {
 
       const newCourse = await CourseService.createCourse(
         {
-          title,
-          description,
+          title: title.trim(),
+          description: description?.trim() || '',
           category,
-          level,
+          level: level || 'beginner',
           isPublic: isPublic !== undefined ? isPublic : true,
-          createdFor: createdFor || null,
-          createdByAI: createdByAI || false,
-          aiReason: aiReason || '',
         },
         req.user.id
       );
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: 'הקורס נוצר בהצלחה',
         course: newCourse,
@@ -100,7 +94,7 @@ export const CourseController = {
     } catch (error) {
       console.error('❌ Error in createCourse:', error);
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
