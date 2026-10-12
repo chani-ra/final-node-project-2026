@@ -1,16 +1,13 @@
-
-
 import mongoose from "mongoose";
 
 export const connectDB = async () => {
-    const MONGO_URI = "mongodb://localhost:27017/learning";
+  const mongoUri = process.env.MONGODB_URI;
 
-    try {
-        await mongoose.connect(MONGO_URI);
-        console.log(`mongodb connected successfully to ${MONGO_URI}`);
+  if (!mongoUri) {
+    throw new Error("MONGODB_URI is not defined");
+  }
 
-    } catch (error) {
-        console.error(error.message);
-        process.exit(1); 
-    }
+  await mongoose.connect(mongoUri);
+
+  console.log("MongoDB connected successfully");
 };
