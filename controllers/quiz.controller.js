@@ -2,6 +2,7 @@ import Quiz from "../models/quiz.model.js";
 import User from "../models/users.model.js";
 import Course from "../models/course.model.js";
 import { EmailService } from "../service/emailService.js";
+import { markQuizCompleted } from "../service/progress.service.js";
 
 export const QuizController = {
   // ➕ יצירת בוחן חדש
@@ -331,7 +332,7 @@ export const QuizController = {
   getQuizzesByCourse: async (req, res) => {
     try {
       const { courseId } = req.params;
-      const userId = req.user?.id;
+      const userId = req.user.id;
 
       const course = await Course.findById(courseId);
 
@@ -341,39 +342,33 @@ export const QuizController = {
         });
       }
 
-      const user = userId ? await User.findById(userId) : null;
+      const isStudentEnrolled = course.enrolledStudents.some(
+        (studentId) => studentId.toString() === userId.toString()
+      );
 
-      const isStudentEnrolled =
-        user &&
-        course.enrolledStudents.some(
-          (studentId) => studentId.toString() === userId
-        );
+      const isTeacherOfCourse =
+        req.user.role === "teacher" &&
+        course.instructorId.toString() === userId.toString();
 
-      const isTeacherOfCourse = course.instructorId.toString() === userId;
       const isAdmin = req.user.role === "admin";
 
-      const isAllowed = isStudentEnrolled || isTeacherOfCourse || isAdmin;
-
-      if (!isAllowed) {
+      if (!isStudentEnrolled && !isTeacherOfCourse && !isAdmin) {
         return res.status(403).json({
-          message: "אתה צריך להיות רשום לקורס כדי לראות את הבחנים",
+          message: "אין לך הרשאה לצפות בבחנים של קורס זה",
         });
       }
 
-      // בקורס אישי הבוחנים נמצאים בתוך course.quizzes,
-      // ולכן לא מחפשים רק לפי quiz.courseId
       const quizIds = course.quizzes || [];
 
       const quizQuery = Quiz.find({
         _id: { $in: quizIds },
         isActive: true,
-      }).sort({
-        createdAt: -1,
-      });
+      }).sort({ createdAt: -1 });
 
-      // תלמידה לא מקבלת תשובות נכונות והסברים לפני הגשה
       if (!isTeacherOfCourse && !isAdmin) {
-        quizQuery.select("-questions.correctAnswer -questions.explanation");
+        quizQuery.select(
+          "-questions.correctAnswer -questions.explanation"
+        );
       }
 
       const quizzes = await quizQuery;
@@ -384,6 +379,7 @@ export const QuizController = {
       });
     } catch (error) {
       console.error("Error fetching quizzes:", error);
+
       return res.status(500).json({
         message: "שגיאה בטעינת הבחנים",
       });
@@ -584,53 +580,11 @@ export const QuizController = {
 
       // עדכון completedQuizzes בתוך courseProgress של הקורס האישי
       if (realCourseId) {
-        let courseProgress = user.courseProgress.find(
-          (cp) => cp.course.toString() === realCourseId.toString()
+        await markQuizCompleted(
+          userId,
+          realCourseId,
+          quizId
         );
-
-        if (!courseProgress) {
-          user.courseProgress.push({
-            course: realCourseId,
-            completedLessons: [],
-            completedExercises: [],
-            completedSongs: [],
-            completedQuizzes: [],
-            progress: 0,
-            startedAt: new Date(),
-            lastAccessedAt: new Date(),
-          });
-
-          courseProgress = user.courseProgress[user.courseProgress.length - 1];
-        }
-
-        if (!courseProgress.completedQuizzes) {
-          courseProgress.completedQuizzes = [];
-        }
-
-        const alreadyCompleted = courseProgress.completedQuizzes.some(
-          (id) => id.toString() === quizId
-        );
-
-        if (!alreadyCompleted) {
-          courseProgress.completedQuizzes.push(quizId);
-        }
-
-        const totalItems =
-          (course.lessons?.length || 0) +
-          (course.songs?.length || 0) +
-          (course.exercises?.length || 0) +
-          (course.quizzes?.length || 0);
-
-        const completedItems =
-          (courseProgress.completedLessons?.length || 0) +
-          (courseProgress.completedSongs?.length || 0) +
-          (courseProgress.completedExercises?.length || 0) +
-          (courseProgress.completedQuizzes?.length || 0);
-
-        courseProgress.progress =
-          totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
-
-        courseProgress.lastAccessedAt = new Date();
       }
 
       // עדכון רמה קליל
@@ -709,11 +663,11 @@ export const QuizController = {
         averageScore:
           quizResults.length > 0
             ? Math.round(
-                quizResults.reduce(
-                  (sum, result) => sum + (result.percentage || 0),
-                  0
-                ) / quizResults.length
-              )
+              quizResults.reduce(
+                (sum, result) => sum + (result.percentage || 0),
+                0
+              ) / quizResults.length
+            )
             : 0,
       });
     } catch (error) {
