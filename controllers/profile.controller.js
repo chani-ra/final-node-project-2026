@@ -20,9 +20,8 @@ export const ProfileController = {
         User.findById(userId)
           .populate("enrolledCourses", "title category level instructorId")
           .populate("quizResults.quiz", "title quizType englishLevel")
-          .populate("quizResults.course", "title")
-          .populate("achievements"),
-
+          .populate("quizResults.course", "title"),
+      
         getUserProgressList(userId),
       ]);
 

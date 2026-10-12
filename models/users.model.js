@@ -81,7 +81,7 @@ const userSchema = new Schema(
       },
     ],
 
-   
+
     quizResults: [
       {
         quiz: {
@@ -113,7 +113,8 @@ const userSchema = new Schema(
             questionIndex: Number,
             userAnswer: String,
             correctAnswer: String,
-            isCorrect: Boolean,
+            explanation: String,
+           isCorrect: Boolean,
             points: Number,
           },
         ],
@@ -156,25 +157,25 @@ const userSchema = new Schema(
       default: true,
     },
     coachHistory: [
-  {
-    note: {
-      type: String,
-      trim: true,
-    },
-    plan: {
-      focus: String,
-      summary: String,
-      steps: [String],
-      tip: String,
-      encouragement: String,
-      estimatedMinutes: Number,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-  },
-],
+      {
+        note: {
+          type: String,
+          trim: true,
+        },
+        plan: {
+          focus: String,
+          summary: String,
+          steps: [String],
+          tip: String,
+          encouragement: String,
+          estimatedMinutes: Number,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
 
     achievements: [
       {
