@@ -1,6 +1,5 @@
 import { Router } from "express";
 import multer from "multer";
-import path from "path";
 import fs from "fs";
 
 import SongsController from "../controllers/songs.controller.js";
@@ -11,7 +10,6 @@ import {
 } from "../middlewares/auth.middleware.js";
 
 const router = Router();
-
 const songsDir = "songsList/";
 
 if (!fs.existsSync(songsDir)) {
@@ -19,18 +17,18 @@ if (!fs.existsSync(songsDir)) {
 }
 
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, songsDir);
-  },
-
-  filename: function (req, file, cb) {
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
-  },
+  destination: (req, file, cb) => cb(null, songsDir),
+  filename: (req, file, cb) =>
+    cb(null, `${Date.now()}-${file.originalname}`),
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ["audio/mpeg", "audio/wav", "audio/mp4", "audio/x-m4a"];
+  const allowedTypes = [
+    "audio/mpeg",
+    "audio/wav",
+    "audio/mp4",
+    "audio/x-m4a",
+  ];
 
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
@@ -45,7 +43,12 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// מורה מעלה שיר
+// Public routes
+router.get("/public", SongsController.getPublicSongs);
+router.get("/weekly", SongsController.getWeeklySong);
+router.get("/song/:id/stream", SongsController.streamSong);
+
+// Teacher / admin management
 router.post(
   "/song",
   authenticateToken,
@@ -54,31 +57,10 @@ router.post(
   SongsController.addSong
 );
 
-// מנהל מקבל את כל השירים
-router.get(
-  "/admin/all",
-  authenticateToken,
-  requireAdmin,
-  SongsController.getAllSongs
-);
-
-router.get("/public", SongsController.getPublicSongs);
-
-router.get("/weekly", SongsController.getWeeklySong);
-
-// מנהל קובע שיר שבועי
-router.patch(
-  "/song/:id/weekly",
-  authenticateToken,
-  requireAdmin,
-  SongsController.setWeeklySong
-);
-
-router.get("/song/:id/stream", SongsController.streamSong);
-
 router.get(
   "/instructor/:instructorId",
   authenticateToken,
+  requireTeacher,
   SongsController.getSongsByInstructor
 );
 
@@ -95,6 +77,21 @@ router.delete(
   authenticateToken,
   requireTeacher,
   SongsController.deleteSong
+);
+
+// Admin routes
+router.get(
+  "/admin/all",
+  authenticateToken,
+  requireAdmin,
+  SongsController.getAllSongs
+);
+
+router.patch(
+  "/song/:id/weekly",
+  authenticateToken,
+  requireAdmin,
+  SongsController.setWeeklySong
 );
 
 export default router;

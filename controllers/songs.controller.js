@@ -1,10 +1,10 @@
 import Song from "../models/songs.model.js";
+import mongoose from "mongoose";
 import fs from "fs/promises";
 import { existsSync, createReadStream, statSync } from "fs";
 import path from "path";
 
 const allowedHobbies = ["art_music", "sports", "movies", "books"];
-
 const allowedExpectations = [
   "grammar",
   "fluent_speaking",
@@ -44,18 +44,23 @@ const buildTargetAges = (min, max) => {
   };
 };
 
-const getSongFilePath = (fileName) => {
-  return path.join(process.cwd(), "songsList", fileName);
-};
+const getSongFilePath = (fileName) =>
+  path.join(process.cwd(), "songsList", fileName);
 
 const getAudioContentType = (fileName = "") => {
   const extension = path.extname(fileName).toLowerCase();
 
   if (extension === ".wav") return "audio/wav";
-  if (extension === ".m4a") return "audio/mp4";
-  if (extension === ".mp4") return "audio/mp4";
-
+  if (extension === ".m4a" || extension === ".mp4") return "audio/mp4";
   return "audio/mpeg";
+};
+
+const removeFileIfExists = async (filePath) => {
+  try {
+    if (filePath && existsSync(filePath)) await fs.unlink(filePath);
+  } catch (error) {
+    console.warn("Failed to remove song file:", error.message);
+  }
 };
 
 export const SongsController = {
@@ -79,7 +84,16 @@ export const SongsController = {
         isPublic,
       } = req.body;
 
-      if (!theme || !duration || !level || !targetAge || !composer || !lyricist) {
+      if (
+        !theme?.trim() ||
+        !duration?.trim() ||
+        !level?.trim() ||
+        !targetAge?.trim() ||
+        !composer?.trim() ||
+        !lyricist?.trim()
+      ) {
+        await removeFileIfExists(req.file?.path);
+
         return res.status(400).json({
           success: false,
           message:
@@ -129,6 +143,7 @@ export const SongsController = {
       });
     } catch (error) {
       console.error("Error adding song:", error);
+      await removeFileIfExists(req.file?.path);
 
       return res.status(400).json({
         success: false,
@@ -159,11 +174,11 @@ export const SongsController = {
     }
   },
 
-  // קבלת שירים ציבוריים לתלמידים
+  // קבלת שירים ציבוריים
   getPublicSongs: async (req, res) => {
     try {
       const songs = await Song.find({ isPublic: true })
-        .populate("uploadedBy", "username email role")
+        .populate("uploadedBy", "username")
         .sort({ createdAt: -1 });
 
       return res.status(200).json({
@@ -181,10 +196,27 @@ export const SongsController = {
     }
   },
 
-  // קבלת שירים לפי מורה
+  // קבלת שירים של מורה - מסך ניהול
   getSongsByInstructor: async (req, res) => {
     try {
       const { instructorId } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(instructorId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של מורה לא תקין",
+        });
+      }
+
+      const isOwner = instructorId.toString() === req.user.id.toString();
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "אין לך הרשאה לצפות בשירים של מורה זו",
+        });
+      }
 
       const songs = await Song.find({ uploadedBy: instructorId })
         .populate("uploadedBy", "username email role")
@@ -205,11 +237,14 @@ export const SongsController = {
     }
   },
 
-  // קבלת שיר השבוע לתלמידים
+  // קבלת שיר השבוע
   getWeeklySong: async (req, res) => {
     try {
-      const song = await Song.findOne({ isWeeklySong: true })
-        .populate("uploadedBy", "username email role")
+      const song = await Song.findOne({
+        isWeeklySong: true,
+        isPublic: true,
+      })
+        .populate("uploadedBy", "username")
         .sort({ weeklySelectedAt: -1 });
 
       return res.status(200).json({
@@ -230,6 +265,13 @@ export const SongsController = {
   setWeeklySong: async (req, res) => {
     try {
       const { id } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של שיר לא תקין",
+        });
+      }
 
       const song = await Song.findById(id);
 
@@ -261,7 +303,7 @@ export const SongsController = {
         },
         {
           new: true,
-          runValidators: false,
+          runValidators: true,
         }
       ).populate("uploadedBy", "username email role");
 
@@ -280,116 +322,113 @@ export const SongsController = {
     }
   },
 
-  // עדכון שיר על ידי מורה או מנהל
+  // עדכון שיר על ידי המורה שיצרה אותו או מנהל
   updateSong: async (req, res) => {
     try {
       const { id } = req.params;
 
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        await removeFileIfExists(req.file?.path);
+
+        return res.status(400).json({
+          success: false,
+          message: "ID של שיר לא תקין",
+        });
+      }
+
       const oldSong = await Song.findById(id);
 
       if (!oldSong) {
+        await removeFileIfExists(req.file?.path);
+
         return res.status(404).json({
           success: false,
           message: "שיר לא נמצא",
         });
       }
 
-      const isOwner = oldSong.uploadedBy.toString() === req.user.id;
+      const isOwner = oldSong.uploadedBy.toString() === req.user.id.toString();
       const isAdmin = req.user.role === "admin";
 
       if (!isOwner && !isAdmin) {
+        await removeFileIfExists(req.file?.path);
+
         return res.status(403).json({
           success: false,
           message: "אין לך הרשאה לערוך שיר זה",
         });
       }
 
-      const updatedSongData = { ...req.body };
+      const {
+        title,
+        theme,
+        duration,
+        level,
+        category,
+        targetAge,
+        targetAgeMin,
+        targetAgeMax,
+        composer,
+        lyricist,
+        lessonId,
+        hobbies,
+        expectations,
+        isPublic,
+      } = req.body;
 
-      if (updatedSongData.title) {
-        updatedSongData.title = updatedSongData.title.trim();
-      }
+      const updatedSongData = {};
 
-      if (updatedSongData.theme) {
-        updatedSongData.theme = updatedSongData.theme.trim();
-      }
+      if (title !== undefined) updatedSongData.title = title.trim();
+      if (theme !== undefined) updatedSongData.theme = theme.trim();
+      if (duration !== undefined) updatedSongData.duration = duration.trim();
+      if (level !== undefined) updatedSongData.level = level.trim();
+      if (category !== undefined) updatedSongData.category = category;
+      if (targetAge !== undefined) updatedSongData.targetAge = targetAge.trim();
+      if (composer !== undefined) updatedSongData.composer = composer.trim();
+      if (lyricist !== undefined) updatedSongData.lyricist = lyricist.trim();
+      if (lessonId !== undefined) updatedSongData.lesson = lessonId || null;
 
-      if (updatedSongData.duration) {
-        updatedSongData.duration = updatedSongData.duration.trim();
-      }
-
-      if (updatedSongData.targetAge) {
-        updatedSongData.targetAge = updatedSongData.targetAge.trim();
-      }
-
-      if (updatedSongData.composer) {
-        updatedSongData.composer = updatedSongData.composer.trim();
-      }
-
-      if (updatedSongData.lyricist) {
-        updatedSongData.lyricist = updatedSongData.lyricist.trim();
-      }
-
-      if (updatedSongData.hobbies !== undefined) {
+      if (hobbies !== undefined) {
         updatedSongData.hobbies = filterAllowedValues(
-          safeJsonParseArray(updatedSongData.hobbies),
+          safeJsonParseArray(hobbies),
           allowedHobbies
         );
       }
 
-      if (updatedSongData.expectations !== undefined) {
+      if (expectations !== undefined) {
         updatedSongData.expectations = filterAllowedValues(
-          safeJsonParseArray(updatedSongData.expectations),
+          safeJsonParseArray(expectations),
           allowedExpectations
         );
       }
 
-      if (
-        updatedSongData.targetAgeMin !== undefined ||
-        updatedSongData.targetAgeMax !== undefined
-      ) {
+      if (targetAgeMin !== undefined || targetAgeMax !== undefined) {
         updatedSongData.targetAges = buildTargetAges(
-          updatedSongData.targetAgeMin ?? oldSong.targetAges?.min,
-          updatedSongData.targetAgeMax ?? oldSong.targetAges?.max
-        );
-
-        delete updatedSongData.targetAgeMin;
-        delete updatedSongData.targetAgeMax;
-      }
-
-      if (updatedSongData.isPublic !== undefined) {
-        updatedSongData.isPublic = parseBoolean(
-          updatedSongData.isPublic,
-          false
+          targetAgeMin ?? oldSong.targetAges?.min,
+          targetAgeMax ?? oldSong.targetAges?.max
         );
       }
 
-      if (updatedSongData.isWeeklySong !== undefined && !isAdmin) {
-        delete updatedSongData.isWeeklySong;
-      }
-
-      if (updatedSongData.weeklySelectedAt !== undefined && !isAdmin) {
-        delete updatedSongData.weeklySelectedAt;
+      if (isPublic !== undefined) {
+        updatedSongData.isPublic = parseBoolean(isPublic, oldSong.isPublic);
       }
 
       if (req.file) {
-        if (oldSong.audioFileName) {
-          const oldFilePath = getSongFilePath(oldSong.audioFileName);
-
-          if (existsSync(oldFilePath)) {
-            await fs.unlink(oldFilePath);
-          }
-        }
-
         updatedSongData.audioFileName = req.file.filename;
       }
 
-      delete updatedSongData.uploadedBy;
+      const updatedSong = await Song.findByIdAndUpdate(
+        id,
+        updatedSongData,
+        {
+          new: true,
+          runValidators: true,
+        }
+      ).populate("uploadedBy", "username email role");
 
-      const updatedSong = await Song.findByIdAndUpdate(id, updatedSongData, {
-        new: true,
-        runValidators: true,
-      }).populate("uploadedBy", "username email role");
+      if (req.file && oldSong.audioFileName) {
+        await removeFileIfExists(getSongFilePath(oldSong.audioFileName));
+      }
 
       return res.status(200).json({
         success: true,
@@ -398,6 +437,7 @@ export const SongsController = {
       });
     } catch (error) {
       console.error("Error updating song:", error);
+      await removeFileIfExists(req.file?.path);
 
       return res.status(400).json({
         success: false,
@@ -406,10 +446,17 @@ export const SongsController = {
     }
   },
 
-  // מחיקת שיר על ידי מורה או מנהל
+  // מחיקת שיר על ידי המורה שיצרה אותו או מנהל
   deleteSong: async (req, res) => {
     try {
       const { id } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של שיר לא תקין",
+        });
+      }
 
       const song = await Song.findById(id);
 
@@ -420,7 +467,7 @@ export const SongsController = {
         });
       }
 
-      const isOwner = song.uploadedBy.toString() === req.user.id;
+      const isOwner = song.uploadedBy.toString() === req.user.id.toString();
       const isAdmin = req.user.role === "admin";
 
       if (!isOwner && !isAdmin) {
@@ -430,15 +477,11 @@ export const SongsController = {
         });
       }
 
-      if (song.audioFileName) {
-        const filePath = getSongFilePath(song.audioFileName);
-
-        if (existsSync(filePath)) {
-          await fs.unlink(filePath);
-        }
-      }
-
       await Song.findByIdAndDelete(id);
+
+      if (song.audioFileName) {
+        await removeFileIfExists(getSongFilePath(song.audioFileName));
+      }
 
       return res.status(200).json({
         success: true,
@@ -454,10 +497,17 @@ export const SongsController = {
     }
   },
 
-  // הזרמת קובץ אודיו
+  // הזרמת קובץ אודיו ציבורי
   streamSong: async (req, res) => {
     try {
       const { id } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של שיר לא תקין",
+        });
+      }
 
       const song = await Song.findById(id);
 
@@ -465,6 +515,13 @@ export const SongsController = {
         return res.status(404).json({
           success: false,
           message: "קובץ שיר לא נמצא",
+        });
+      }
+
+      if (!song.isPublic) {
+        return res.status(403).json({
+          success: false,
+          message: "השיר אינו ציבורי",
         });
       }
 
@@ -477,8 +534,7 @@ export const SongsController = {
         });
       }
 
-      const stat = statSync(filePath);
-      const fileSize = stat.size;
+      const fileSize = statSync(filePath).size;
       const range = req.headers.range;
       const contentType = getAudioContentType(song.audioFileName);
 
@@ -486,9 +542,19 @@ export const SongsController = {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        const chunkSize = end - start + 1;
 
-        const file = createReadStream(filePath, { start, end });
+        if (
+          Number.isNaN(start) ||
+          Number.isNaN(end) ||
+          start < 0 ||
+          end >= fileSize ||
+          start > end
+        ) {
+          res.setHeader("Content-Range", `bytes */${fileSize}`);
+          return res.sendStatus(416);
+        }
+
+        const chunkSize = end - start + 1;
 
         res.writeHead(206, {
           "Content-Range": `bytes ${start}-${end}/${fileSize}`,
@@ -497,8 +563,7 @@ export const SongsController = {
           "Content-Type": contentType,
         });
 
-        file.pipe(res);
-        return;
+        return createReadStream(filePath, { start, end }).pipe(res);
       }
 
       res.writeHead(200, {
@@ -506,7 +571,7 @@ export const SongsController = {
         "Content-Type": contentType,
       });
 
-      createReadStream(filePath).pipe(res);
+      return createReadStream(filePath).pipe(res);
     } catch (error) {
       console.error("Error streaming song:", error);
 
