@@ -39,10 +39,12 @@ export const userValidationSchema = Joi.object({
     }),
 
   age: Joi.number()
+    .integer()
     .min(4)
     .max(120)
     .required()
     .messages({
+      'number.base': 'גיל חייב להיות מספר',
       'number.min': 'גיל מינימלי הוא 4',
       'number.max': 'גיל מקסימלי הוא 120',
       'any.required': 'גיל חובה',
@@ -69,7 +71,12 @@ export const userValidationSchema = Joi.object({
 
   expectations: Joi.array()
     .items(
-      Joi.string().valid('grammar', 'fluent_speaking', 'confidence', 'vocabulary')
+      Joi.string().valid(
+        'grammar',
+        'fluent_speaking',
+        'confidence',
+        'vocabulary'
+      )
     )
     .default([]),
 
@@ -81,13 +88,25 @@ export const userValidationSchema = Joi.object({
       'any.required': 'יש לבחור מגדר',
     }),
 
-  role: Joi.string()
-    .valid('admin', 'teacher', 'student')
-    .optional()
-    .default('student'),
-
   englishLevel: Joi.string()
     .valid('beginner', 'intermediate', 'advanced')
     .optional()
     .default('beginner'),
+});
+
+export const loginValidationSchema = Joi.object({
+  email: Joi.string()
+    .email()
+    .lowercase()
+    .trim()
+    .required(),
+
+  password: Joi.string()
+    .required(),
+});
+
+export const refreshTokenValidationSchema = Joi.object({
+  refreshToken: Joi.string()
+    .trim()
+    .required(),
 });
