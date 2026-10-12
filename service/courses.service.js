@@ -1,5 +1,7 @@
 import Course from '../models/course.model.js';
 import User from '../models/users.model.js';
+import Quiz from '../models/quiz.model.js';
+import CourseProgress from '../models/courseProgress.model.js';
 import { getOrCreateProgress } from './progress.service.js';
 
 const hobbyCategoryMap = {
@@ -364,45 +366,44 @@ export const CourseService = {
     });
   },
 
-  deleteCourse: async (
-    courseId,
-    requestingUser
-  ) => {
-    const course =
-      await Course.findById(courseId);
+  deleteCourse: async (courseId, requestingUser) => {
+    const course = await Course.findById(courseId);
 
     if (!course) {
-      const error =
-        new Error('קורס לא נמצא');
-
+      const error = new Error('קורס לא נמצא');
       error.status = 404;
       throw error;
     }
 
-    const isAdmin =
-      requestingUser.role === 'admin';
-
+    const isAdmin = requestingUser.role === 'admin';
     const isInstructor =
-      course.instructorId.toString() ===
-      requestingUser.id.toString();
+      course.instructorId.toString() === requestingUser.id.toString();
 
     if (!isAdmin && !isInstructor) {
-      const error =
-        new Error(
-          'אתה לא מורשה למחוק קורס זה'
-        );
-
+      const error = new Error('אתה לא מורשה למחוק קורס זה');
       error.status = 403;
       throw error;
     }
 
-    await Course.findByIdAndDelete(courseId);
+    await Promise.all([
+      User.updateMany(
+        { enrolledCourses: course._id },
+        { $pull: { enrolledCourses: course._id } }
+      ),
+      CourseProgress.deleteMany({ course: course._id }),
+      Quiz.updateMany(
+        { courseId: course._id },
+        { $set: { courseId: null } }
+      ),
+    ]);
+
+    await Course.findByIdAndDelete(course._id);
 
     return {
       message: 'קורס נמחק בהצלחה',
     };
   },
-
+  
   enrollStudentInCourse: async (
     courseId,
     studentId
