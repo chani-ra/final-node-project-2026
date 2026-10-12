@@ -1,7 +1,14 @@
+import mongoose from "mongoose";
 import Exercise from "../models/exercise.model.js";
+import Course from "../models/course.model.js";
 
 const allowedHobbies = ["art_music", "sports", "movies", "books"];
-const allowedExpectations = ["grammar", "fluent_speaking", "confidence", "vocabulary"];
+const allowedExpectations = [
+  "grammar",
+  "fluent_speaking",
+  "confidence",
+  "vocabulary",
+];
 
 const safeJsonParseArray = (value) => {
   if (!value) return [];
@@ -35,6 +42,18 @@ const buildTargetAges = (min, max) => {
   };
 };
 
+const canAccessPrivateExercise = async (exercise, user) => {
+  if (user.role === "admin") return true;
+  if (exercise.createdBy.toString() === user.id.toString()) return true;
+
+  const enrolledCourse = await Course.exists({
+    exercises: exercise._id,
+    enrolledStudents: user.id,
+  });
+
+  return Boolean(enrolledCourse);
+};
+
 export const ExerciseController = {
   // יצירת תרגיל חדש על ידי מורה
   createExercise: async (req, res) => {
@@ -63,16 +82,6 @@ export const ExerciseController = {
         });
       }
 
-      const parsedHobbies = filterAllowedValues(
-        safeJsonParseArray(hobbies),
-        allowedHobbies
-      );
-
-      const parsedExpectations = filterAllowedValues(
-        safeJsonParseArray(expectations),
-        allowedExpectations
-      );
-
       const newExercise = new Exercise({
         title: title.trim(),
         description: description?.trim() || "",
@@ -81,8 +90,14 @@ export const ExerciseController = {
         category: category || "general",
         level: level || "beginner",
         targetAges: buildTargetAges(targetAgeMin, targetAgeMax),
-        hobbies: parsedHobbies,
-        expectations: parsedExpectations,
+        hobbies: filterAllowedValues(
+          safeJsonParseArray(hobbies),
+          allowedHobbies
+        ),
+        expectations: filterAllowedValues(
+          safeJsonParseArray(expectations),
+          allowedExpectations
+        ),
         materials: safeJsonParseArray(materials),
         isPublic: parseBoolean(isPublic, false),
         createdBy: req.user.id,
@@ -92,7 +107,7 @@ export const ExerciseController = {
 
       await newExercise.save();
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: "תרגיל נוצר בהצלחה",
         exercise: newExercise,
@@ -100,7 +115,7 @@ export const ExerciseController = {
     } catch (error) {
       console.error("Error creating exercise:", error);
 
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: error.message,
       });
@@ -111,10 +126,11 @@ export const ExerciseController = {
   getAllExercises: async (req, res) => {
     try {
       const exercises = await Exercise.find({ isPublic: true })
-        .populate("createdBy", "username email role")
+        .select("-aiPrompt")
+        .populate("createdBy", "username")
         .sort({ createdAt: -1 });
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         count: exercises.length,
         exercises,
@@ -122,23 +138,40 @@ export const ExerciseController = {
     } catch (error) {
       console.error("Error fetching exercises:", error);
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
     }
   },
 
-  // קבלת תרגילים של מורה
+  // קבלת תרגילים של מורה - מסך ניהול
   getExercisesByTeacher: async (req, res) => {
     try {
       const { teacherId } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של מורה לא תקין",
+        });
+      }
+
+      const isOwner = teacherId.toString() === req.user.id.toString();
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "אין לך הרשאה לצפות בתרגילים של מורה זו",
+        });
+      }
 
       const exercises = await Exercise.find({ createdBy: teacherId })
         .populate("createdBy", "username email role")
         .sort({ createdAt: -1 });
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         count: exercises.length,
         exercises,
@@ -146,7 +179,7 @@ export const ExerciseController = {
     } catch (error) {
       console.error("Error fetching teacher exercises:", error);
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
@@ -156,10 +189,16 @@ export const ExerciseController = {
   // קבלת תרגיל לפי מזהה
   getExerciseById: async (req, res) => {
     try {
-      const exercise = await Exercise.findById(req.params.exerciseId).populate(
-        "createdBy",
-        "username email role"
-      );
+      const { exerciseId } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(exerciseId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של תרגיל לא תקין",
+        });
+      }
+
+      const exercise = await Exercise.findById(exerciseId);
 
       if (!exercise) {
         return res.status(404).json({
@@ -168,14 +207,37 @@ export const ExerciseController = {
         });
       }
 
-      res.status(200).json({
+      if (!exercise.isPublic) {
+        const canAccess = await canAccessPrivateExercise(exercise, req.user);
+
+        if (!canAccess) {
+          return res.status(403).json({
+            success: false,
+            message: "אין לך הרשאה לצפות בתרגיל זה",
+          });
+        }
+      }
+
+      const isOwner =
+        exercise.createdBy.toString() === req.user.id.toString();
+      const isAdmin = req.user.role === "admin";
+
+      await exercise.populate("createdBy", "username");
+
+      const safeExercise = exercise.toObject();
+
+      if (!isOwner && !isAdmin) {
+        delete safeExercise.aiPrompt;
+      }
+
+      return res.status(200).json({
         success: true,
-        exercise,
+        exercise: safeExercise,
       });
     } catch (error) {
       console.error("Error fetching exercise:", error);
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
@@ -187,6 +249,13 @@ export const ExerciseController = {
     try {
       const { exerciseId } = req.params;
 
+      if (!mongoose.Types.ObjectId.isValid(exerciseId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של תרגיל לא תקין",
+        });
+      }
+
       const exercise = await Exercise.findById(exerciseId);
 
       if (!exercise) {
@@ -196,67 +265,84 @@ export const ExerciseController = {
         });
       }
 
-      if (exercise.createdBy.toString() !== req.user.id && req.user.role !== "admin") {
+      const isOwner =
+        exercise.createdBy.toString() === req.user.id.toString();
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
         return res.status(403).json({
           success: false,
           message: "אין לך הרשאה לערוך תרגיל זה",
         });
       }
 
-      const updateData = { ...req.body };
+      const {
+        title,
+        description,
+        instructions,
+        type,
+        materials,
+        category,
+        level,
+        targetAgeMin,
+        targetAgeMax,
+        hobbies,
+        expectations,
+        isPublic,
+      } = req.body;
 
-      if (updateData.title) updateData.title = updateData.title.trim();
-      if (updateData.description) updateData.description = updateData.description.trim();
-      if (updateData.instructions) updateData.instructions = updateData.instructions.trim();
+      const updateData = {};
 
-      if (updateData.hobbies !== undefined) {
+      if (title !== undefined) updateData.title = title.trim();
+      if (description !== undefined) {
+        updateData.description = description.trim();
+      }
+      if (instructions !== undefined) {
+        updateData.instructions = instructions.trim();
+      }
+      if (type !== undefined) updateData.type = type;
+      if (category !== undefined) updateData.category = category;
+      if (level !== undefined) updateData.level = level;
+
+      if (materials !== undefined) {
+        updateData.materials = safeJsonParseArray(materials);
+      }
+
+      if (hobbies !== undefined) {
         updateData.hobbies = filterAllowedValues(
-          safeJsonParseArray(updateData.hobbies),
+          safeJsonParseArray(hobbies),
           allowedHobbies
         );
       }
 
-      if (updateData.expectations !== undefined) {
+      if (expectations !== undefined) {
         updateData.expectations = filterAllowedValues(
-          safeJsonParseArray(updateData.expectations),
+          safeJsonParseArray(expectations),
           allowedExpectations
         );
       }
 
-      if (updateData.materials !== undefined) {
-        updateData.materials = safeJsonParseArray(updateData.materials);
-      }
-
-      if (
-        updateData.targetAgeMin !== undefined ||
-        updateData.targetAgeMax !== undefined
-      ) {
+      if (targetAgeMin !== undefined || targetAgeMax !== undefined) {
         updateData.targetAges = buildTargetAges(
-          updateData.targetAgeMin ?? exercise.targetAges?.min,
-          updateData.targetAgeMax ?? exercise.targetAges?.max
+          targetAgeMin ?? exercise.targetAges?.min,
+          targetAgeMax ?? exercise.targetAges?.max
         );
-
-        delete updateData.targetAgeMin;
-        delete updateData.targetAgeMax;
       }
 
-      if (updateData.isPublic !== undefined) {
-        updateData.isPublic = parseBoolean(updateData.isPublic, false);
+      if (isPublic !== undefined) {
+        updateData.isPublic = parseBoolean(isPublic, exercise.isPublic);
       }
-
-      if (updateData.createdByAI !== undefined) {
-        updateData.createdByAI = parseBoolean(updateData.createdByAI, false);
-      }
-
-      delete updateData.createdBy;
 
       const updatedExercise = await Exercise.findByIdAndUpdate(
         exerciseId,
         updateData,
-        { new: true, runValidators: true }
+        {
+          new: true,
+          runValidators: true,
+        }
       );
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: "תרגיל עודכן בהצלחה",
         exercise: updatedExercise,
@@ -264,7 +350,7 @@ export const ExerciseController = {
     } catch (error) {
       console.error("Error updating exercise:", error);
 
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: error.message,
       });
@@ -276,6 +362,13 @@ export const ExerciseController = {
     try {
       const { exerciseId } = req.params;
 
+      if (!mongoose.Types.ObjectId.isValid(exerciseId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של תרגיל לא תקין",
+        });
+      }
+
       const exercise = await Exercise.findById(exerciseId);
 
       if (!exercise) {
@@ -285,7 +378,11 @@ export const ExerciseController = {
         });
       }
 
-      if (exercise.createdBy.toString() !== req.user.id && req.user.role !== "admin") {
+      const isOwner =
+        exercise.createdBy.toString() === req.user.id.toString();
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
         return res.status(403).json({
           success: false,
           message: "אין לך הרשאה למחוק תרגיל זה",
@@ -294,14 +391,14 @@ export const ExerciseController = {
 
       await Exercise.findByIdAndDelete(exerciseId);
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: "תרגיל נמחק בהצלחה",
       });
     } catch (error) {
       console.error("Error deleting exercise:", error);
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
@@ -314,6 +411,13 @@ export const ExerciseController = {
       const { exerciseId } = req.params;
       const userId = req.user.id;
 
+      if (!mongoose.Types.ObjectId.isValid(exerciseId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID של תרגיל לא תקין",
+        });
+      }
+
       const exercise = await Exercise.findById(exerciseId);
 
       if (!exercise) {
@@ -323,7 +427,18 @@ export const ExerciseController = {
         });
       }
 
-      res.status(200).json({
+      if (!exercise.isPublic) {
+        const canAccess = await canAccessPrivateExercise(exercise, req.user);
+
+        if (!canAccess) {
+          return res.status(403).json({
+            success: false,
+            message: "אין לך הרשאה לתרגיל זה",
+          });
+        }
+      }
+
+      return res.status(200).json({
         success: true,
         message: "תרגיל סומן כהושלם",
         exerciseId,
@@ -333,7 +448,7 @@ export const ExerciseController = {
     } catch (error) {
       console.error("Error marking exercise completed:", error);
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: error.message,
       });
