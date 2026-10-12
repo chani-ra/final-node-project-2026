@@ -26,7 +26,7 @@ const courseProgressSchema = new Schema(
     completedSongs: [
       {
         type: Schema.Types.ObjectId,
-        ref: "Song",
+        ref: "song",
       },
     ],
 
@@ -60,6 +60,9 @@ const courseProgressSchema = new Schema(
   { timestamps: true }
 );
 
-courseProgressSchema.index({ user: 1, course: 1 }, { unique: true });
+courseProgressSchema.index(
+  { user: 1, course: 1 },
+  { unique: true }
+);
 
 export default model("CourseProgress", courseProgressSchema);
