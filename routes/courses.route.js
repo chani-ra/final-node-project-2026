@@ -29,8 +29,13 @@ router.post(
 );
 
 // 
-router.get('/:courseId', CourseController.getCourseById);
-router.put('/:courseId', authenticateToken, requireTeacher, CourseController.updateCourse);
+router.get(
+  '/:courseId',
+  authenticateToken,
+  CourseController.getCourseById
+);
+router.put('/:courseId',
+   authenticateToken, requireTeacher, CourseController.updateCourse);
 router.delete('/:courseId', authenticateToken, requireTeacher, CourseController.deleteCourse);
 
 // 
