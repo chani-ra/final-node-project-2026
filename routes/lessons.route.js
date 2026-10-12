@@ -1,56 +1,88 @@
 import { Router } from "express";
 import LessonController from "../controllers/lesson.controller.js";
-import { authenticateToken, requireTeacher } from "../middlewares/auth.middleware.js";
+import {
+  authenticateToken,
+  requireTeacher,
+} from "../middlewares/auth.middleware.js";
 import upload from "../config/multer.js";
 
 const router = Router();
 
+/**
+ * TEACHER / ADMIN ROUTES
+ */
 
-
+// העלאת שיעור חדש
 router.post(
-  '/upload',
+  "/upload",
   authenticateToken,
   requireTeacher,
-  upload.single('video'),
+  upload.single("video"),
   LessonController.uploadLesson
 );
 
+// עדכון שיעור
 router.put(
-  '/:lessonId',
+  "/:lessonId",
   authenticateToken,
   requireTeacher,
-  upload.single('video'),
+  upload.single("video"),
   LessonController.updateLesson
 );
 
+// מחיקת שיעור
 router.delete(
-  '/:lessonId',
+  "/:lessonId",
   authenticateToken,
   requireTeacher,
   LessonController.deleteLesson
 );
 
-
-router.get('/search', LessonController.searchLessons);
-
-router.get('/stats/:instructorId', LessonController.getInstructorStats);
-
-router.get('/:lessonId', LessonController.getLessonById);
-
-router.get('/:lessonId/stream', LessonController.streamLesson);
-
-/**
- * AUTHENTICATED ROUTES
- */
-
+// סטטיסטיקות של מורה
 router.get(
-  '/instructor/:instructorId',
+  "/stats/:instructorId",
   authenticateToken,
+  requireTeacher,
+  LessonController.getInstructorStats
+);
+
+// כל השיעורים של מורה
+router.get(
+  "/instructor/:instructorId",
+  authenticateToken,
+  requireTeacher,
   LessonController.getInstructorLessons
 );
 
+/**
+ * PUBLIC ROUTES
+ */
+
+// חיפוש שיעורים ציבוריים
+router.get(
+  "/search",
+  LessonController.searchLessons
+);
+
+// קבלת שיעור ציבורי
+router.get(
+  "/:lessonId",
+  LessonController.getLessonById
+);
+
+// צפייה בווידאו של שיעור ציבורי
+router.get(
+  "/:lessonId/stream",
+  LessonController.streamLesson
+);
+
+/**
+ * AUTHENTICATED STUDENT ROUTES
+ */
+
+// הרשמה לשיעור
 router.post(
-  '/:lessonId/enroll',
+  "/:lessonId/enroll",
   authenticateToken,
   LessonController.enrollStudent
 );

@@ -27,7 +27,7 @@ const buildTargetAges = (min, max) => ({
 });
 
 export const LessonController = {
-  // ➕ העלאת שיעור חדש
+  // העלאת שיעור חדש
   uploadLesson: async (req, res) => {
     try {
       const {
@@ -92,16 +92,17 @@ export const LessonController = {
       };
 
       const newLesson = new Lesson(newLessonData);
+
       await newLesson.save();
       await newLesson.populate('instructorId', 'username email');
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: 'שיעור הועלה בהצלחה',
         lesson: newLesson,
       });
     } catch (error) {
-      console.error('❌ [uploadLesson] Error:', error);
+      console.error('[uploadLesson] Error:', error);
 
       if (req.file) {
         try {
@@ -111,16 +112,31 @@ export const LessonController = {
         }
       }
 
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: error.message,
       });
     }
   },
 
-  // 📖 קבלת כל השיעורים של מורה
+  // קבלת כל השיעורים של מורה
   getInstructorLessons: async (req, res) => {
     const { instructorId } = req.params;
+
+    // ניהול הרשאות:
+    // מורה רואה את השיעורים שלה, Admin יכול לראות של כל מורה.
+    const isOwner =
+      instructorId.toString() === req.user.id.toString();
+
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'אין לך הרשאה לצפות בשיעורי מורה זו',
+      });
+    }
+
     const {
       sortBy = 'createdAt',
       order = 'desc',
@@ -129,69 +145,125 @@ export const LessonController = {
     } = req.query;
 
     try {
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-      const sortObj = { [sortBy]: order === 'desc' ? -1 : 1 };
+      const skip =
+        (parseInt(page) - 1) * parseInt(limit);
 
-      const lessons = await Lesson.find({ instructorId })
+      const sortObj = {
+        [sortBy]: order === 'desc' ? -1 : 1,
+      };
+
+      const lessons = await Lesson.find({
+        instructorId,
+      })
         .sort(sortObj)
         .limit(parseInt(limit))
         .skip(skip)
-        .populate('instructorId', 'username email');
+        .populate(
+          'instructorId',
+          'username email'
+        );
 
-      const totalLessons = await Lesson.countDocuments({ instructorId });
+      const totalLessons =
+        await Lesson.countDocuments({
+          instructorId,
+        });
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         count: lessons.length,
         total: totalLessons,
-        pages: Math.ceil(totalLessons / parseInt(limit)),
+        pages: Math.ceil(
+          totalLessons / parseInt(limit)
+        ),
         currentPage: parseInt(page),
         lessons,
       });
     } catch (error) {
-      console.error('Error fetching instructor lessons:', error);
-      res.status(500).json({ message: error.message });
+      console.error(
+        'Error fetching instructor lessons:',
+        error
+      );
+
+      return res.status(500).json({
+        message: error.message,
+      });
     }
   },
 
-  // 📖 קבלת שיעור ספציפי
+  // קבלת שיעור ספציפי
   getLessonById: async (req, res) => {
     const { lessonId } = req.params;
 
     try {
-      const lesson = await Lesson.findById(lessonId)
-        .populate('instructorId', 'username email')
-        .populate('enrolledStudents', 'username email');
+      const lesson = await Lesson.findById(
+        lessonId
+      )
+        .populate(
+          'instructorId',
+          'username email'
+        )
+        .populate(
+          'enrolledStudents',
+          'username email'
+        );
 
       if (!lesson) {
-        return res.status(404).json({ message: 'שיעור לא נמצא' });
+        return res.status(404).json({
+          message: 'שיעור לא נמצא',
+        });
       }
 
       lesson.views += 1;
       await lesson.save();
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         lesson,
       });
     } catch (error) {
-      console.error('Error fetching lesson:', error);
-      res.status(500).json({ message: error.message });
+      console.error(
+        'Error fetching lesson:',
+        error
+      );
+
+      return res.status(500).json({
+        message: error.message,
+      });
     }
   },
 
-  // ✏️ עדכון שיעור
+  // עדכון שיעור
   updateLesson: async (req, res) => {
     const { lessonId } = req.params;
 
     try {
-      const oldLesson = await Lesson.findById(lessonId);
+      const oldLesson =
+        await Lesson.findById(lessonId);
 
       if (!oldLesson) {
-        return res.status(404).json({ message: 'שיעור לא נמצא' });
+        if (req.file) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch {
+            // ignore
+          }
+        }
+
+        return res.status(404).json({
+          message: 'שיעור לא נמצא',
+        });
       }
 
-      if (oldLesson.instructorId.toString() !== req.user.id) {
+      // ניהול הרשאות:
+      // המורה שיצרה את השיעור או Admin.
+      const isOwner =
+        oldLesson.instructorId.toString() ===
+        req.user.id.toString();
+
+      const isAdmin =
+        req.user.role === 'admin';
+
+      if (!isOwner && !isAdmin) {
         if (req.file) {
           try {
             fs.unlinkSync(req.file.path);
@@ -201,120 +273,196 @@ export const LessonController = {
         }
 
         return res.status(403).json({
-          message: 'אתה לא מורשה לערוך שיעור זה',
+          message:
+            'אין לך הרשאה לערוך שיעור זה',
         });
       }
 
-      const updatedLessonData = { ...req.body };
+      const updatedLessonData = {
+        ...req.body,
+      };
 
       if (updatedLessonData.hobbies) {
-        updatedLessonData.hobbies = safeJsonParseArray(updatedLessonData.hobbies);
+        updatedLessonData.hobbies =
+          safeJsonParseArray(
+            updatedLessonData.hobbies
+          );
       }
 
       if (updatedLessonData.expectations) {
-        updatedLessonData.expectations = safeJsonParseArray(updatedLessonData.expectations);
+        updatedLessonData.expectations =
+          safeJsonParseArray(
+            updatedLessonData.expectations
+          );
       }
 
-      if (updatedLessonData.targetAgeMin || updatedLessonData.targetAgeMax) {
-        updatedLessonData.targetAges = buildTargetAges(
-          updatedLessonData.targetAgeMin,
-          updatedLessonData.targetAgeMax
-        );
+      if (
+        updatedLessonData.targetAgeMin ||
+        updatedLessonData.targetAgeMax
+      ) {
+        updatedLessonData.targetAges =
+          buildTargetAges(
+            updatedLessonData.targetAgeMin,
+            updatedLessonData.targetAgeMax
+          );
 
         delete updatedLessonData.targetAgeMin;
         delete updatedLessonData.targetAgeMax;
       }
 
-      if (updatedLessonData.isPublic !== undefined) {
-        updatedLessonData.isPublic = parseBoolean(updatedLessonData.isPublic, false);
+      if (
+        updatedLessonData.isPublic !== undefined
+      ) {
+        updatedLessonData.isPublic =
+          parseBoolean(
+            updatedLessonData.isPublic,
+            false
+          );
       }
 
       if (req.file) {
         if (oldLesson.videoFileName) {
-          const oldFilePath = path.join('uploads/videos', oldLesson.videoFileName);
+          const oldFilePath = path.join(
+            'uploads/videos',
+            oldLesson.videoFileName
+          );
 
           if (fs.existsSync(oldFilePath)) {
             fs.unlinkSync(oldFilePath);
           }
         }
 
-        updatedLessonData.videoFileName = req.file.filename;
-        updatedLessonData.videoUrl = `/uploads/videos/${req.file.filename}`;
-        updatedLessonData.videoFileSize = req.file.size;
+        updatedLessonData.videoFileName =
+          req.file.filename;
+
+        updatedLessonData.videoUrl =
+          `/uploads/videos/${req.file.filename}`;
+
+        updatedLessonData.videoFileSize =
+          req.file.size;
       }
 
-      const updatedLesson = await Lesson.findByIdAndUpdate(
-        lessonId,
-        updatedLessonData,
-        {
-          new: true,
-          runValidators: true,
-        }
-      );
+      const updatedLesson =
+        await Lesson.findByIdAndUpdate(
+          lessonId,
+          updatedLessonData,
+          {
+            new: true,
+            runValidators: true,
+          }
+        );
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: 'שיעור עודכן בהצלחה',
         lesson: updatedLesson,
       });
     } catch (error) {
-      console.error('Error updating lesson:', error);
-      res.status(400).json({ message: error.message });
+      console.error(
+        'Error updating lesson:',
+        error
+      );
+
+      if (req.file) {
+        try {
+          if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      return res.status(400).json({
+        message: error.message,
+      });
     }
   },
 
-  // 🗑️ מחיקת שיעור
+  // מחיקת שיעור
   deleteLesson: async (req, res) => {
     const { lessonId } = req.params;
 
     try {
-      const lesson = await Lesson.findById(lessonId);
+      const lesson =
+        await Lesson.findById(lessonId);
 
       if (!lesson) {
-        return res.status(404).json({ message: 'שיעור לא נמצא' });
-      }
-
-      if (lesson.instructorId.toString() !== req.user.id) {
-        return res.status(403).json({
-          message: 'אתה לא מורשה למחוק שיעור זה',
+        return res.status(404).json({
+          message: 'שיעור לא נמצא',
         });
       }
 
-      await Lesson.findByIdAndDelete(lessonId);
+      // ניהול הרשאות:
+      // המורה שיצרה את השיעור או Admin.
+      const isOwner =
+        lesson.instructorId.toString() ===
+        req.user.id.toString();
+
+      const isAdmin =
+        req.user.role === 'admin';
+
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
+          message:
+            'אין לך הרשאה למחוק שיעור זה',
+        });
+      }
+
+      await Lesson.findByIdAndDelete(
+        lessonId
+      );
 
       if (lesson.videoFileName) {
-        const filePath = path.join('uploads/videos', lesson.videoFileName);
+        const filePath = path.join(
+          'uploads/videos',
+          lesson.videoFileName
+        );
 
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
       }
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: 'שיעור נמחק בהצלחה',
       });
     } catch (error) {
-      console.error('Error deleting lesson:', error);
-      res.status(500).json({ message: error.message });
+      console.error(
+        'Error deleting lesson:',
+        error
+      );
+
+      return res.status(500).json({
+        message: error.message,
+      });
     }
   },
 
-  // 📺 השמעת ווידאו בזרם
+  // השמעת וידאו בזרם
   streamLesson: async (req, res) => {
     const { lessonId } = req.params;
 
     try {
-      const lesson = await Lesson.findById(lessonId);
+      const lesson =
+        await Lesson.findById(lessonId);
 
       if (!lesson) {
-        return res.status(404).json({ message: 'שיעור לא נמצא' });
+        return res.status(404).json({
+          message: 'שיעור לא נמצא',
+        });
       }
 
-      const videoPath = path.join('uploads/videos', lesson.videoFileName);
+      const videoPath = path.join(
+        'uploads/videos',
+        lesson.videoFileName
+      );
 
       if (!fs.existsSync(videoPath)) {
-        return res.status(404).json({ message: 'קובץ וידאו לא נמצא' });
+        return res.status(404).json({
+          message: 'קובץ וידאו לא נמצא',
+        });
       }
 
       const stat = fs.statSync(videoPath);
@@ -322,77 +470,120 @@ export const LessonController = {
       const range = req.headers.range;
 
       if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        const chunksize = end - start + 1;
+        const parts = range
+          .replace(/bytes=/, '')
+          .split('-');
+
+        const start = parseInt(
+          parts[0],
+          10
+        );
+
+        const end = parts[1]
+          ? parseInt(parts[1], 10)
+          : fileSize - 1;
+
+        const chunkSize =
+          end - start + 1;
 
         res.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Content-Range':
+            `bytes ${start}-${end}/${fileSize}`,
           'Accept-Ranges': 'bytes',
-          'Content-Length': chunksize,
+          'Content-Length': chunkSize,
           'Content-Type': 'video/mp4',
         });
 
-        fs.createReadStream(videoPath, { start, end }).pipe(res);
-      } else {
-        res.writeHead(200, {
-          'Content-Length': fileSize,
-          'Content-Type': 'video/mp4',
-        });
-
-        fs.createReadStream(videoPath).pipe(res);
+        return fs
+          .createReadStream(videoPath, {
+            start,
+            end,
+          })
+          .pipe(res);
       }
-    } catch (error) {
-      console.error('Error streaming lesson:', error);
 
-      res.status(500).json({
-        message: 'שגיאה בהשמעת הווידאו',
+      res.writeHead(200, {
+        'Content-Length': fileSize,
+        'Content-Type': 'video/mp4',
+      });
+
+      return fs
+        .createReadStream(videoPath)
+        .pipe(res);
+    } catch (error) {
+      console.error(
+        'Error streaming lesson:',
+        error
+      );
+
+      return res.status(500).json({
+        message:
+          'שגיאה בהשמעת הווידאו',
         error: error.message,
       });
     }
   },
 
-  // 👤 הרשמת סטודנט לשיעור
+  // הרשמת סטודנט לשיעור
   enrollStudent: async (req, res) => {
     const { lessonId } = req.params;
     const studentId = req.user.id;
 
     try {
-      const lesson = await Lesson.findById(lessonId);
+      const lesson =
+        await Lesson.findById(lessonId);
 
       if (!lesson) {
-        return res.status(404).json({ message: 'שיעור לא נמצא' });
-      }
-
-      if (lesson.enrolledStudents.includes(studentId)) {
-        return res.status(400).json({
-          message: 'אתה כבר רשום לשיעור זה',
+        return res.status(404).json({
+          message: 'שיעור לא נמצא',
         });
       }
 
-      lesson.enrolledStudents.push(studentId);
+      const alreadyEnrolled =
+        lesson.enrolledStudents.some(
+          (id) =>
+            id.toString() ===
+            studentId.toString()
+        );
+
+      if (alreadyEnrolled) {
+        return res.status(400).json({
+          message:
+            'אתה כבר רשום לשיעור זה',
+        });
+      }
+
+      lesson.enrolledStudents.push(
+        studentId
+      );
+
       await lesson.save();
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
-        message: 'נרשמת לשיעור בהצלחה',
+        message:
+          'נרשמת לשיעור בהצלחה',
       });
     } catch (error) {
-      console.error('Error enrolling student:', error);
+      console.error(
+        'Error enrolling student:',
+        error
+      );
 
-      res.status(500).json({
-        message: 'שגיאה בהרשמה לשיעור',
+      return res.status(500).json({
+        message:
+          'שגיאה בהרשמה לשיעור',
         error: error.message,
       });
     }
   },
 
-  // 🔍 חיפוש שיעורים
+  // חיפוש שיעורים
   searchLessons: async (req, res) => {
     const {
       search,
       language,
+      isPublic,
       category,
       level,
       limit = 10,
@@ -402,48 +593,29 @@ export const LessonController = {
     } = req.query;
 
     try {
-      const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
-      const limitNumber = Math.min(
-        Math.max(parseInt(limit, 10) || 10, 1),
-        50
-      );
+      const skip =
+        (parseInt(page) - 1) *
+        parseInt(limit);
 
-      const skip = (pageNumber - 1) * limitNumber;
+      const query = {};
 
-      const allowedSortFields = [
-        'createdAt',
-        'title',
-        'views',
-        'level',
-      ];
-
-      const safeSortBy = allowedSortFields.includes(sortBy)
-        ? sortBy
-        : 'createdAt';
-
-      const query = {
-        isPublic: true,
-      };
-
-      if (search?.trim()) {
-        const searchText = search.trim();
-
+      if (search) {
         query.$or = [
           {
             title: {
-              $regex: searchText,
+              $regex: search,
               $options: 'i',
             },
           },
           {
             description: {
-              $regex: searchText,
+              $regex: search,
               $options: 'i',
             },
           },
           {
             topic: {
-              $regex: searchText,
+              $regex: search,
               $options: 'i',
             },
           },
@@ -451,7 +623,13 @@ export const LessonController = {
       }
 
       if (language) {
-        query.lessonLanguage = language;
+        query.lessonLanguage =
+          language;
+      }
+
+      if (isPublic !== undefined) {
+        query.isPublic =
+          isPublic === 'true';
       }
 
       if (category) {
@@ -463,80 +641,151 @@ export const LessonController = {
       }
 
       const sortObj = {
-        [safeSortBy]: order === 'asc' ? 1 : -1,
+        [sortBy]:
+          order === 'desc' ? -1 : 1,
       };
 
-      const lessons = await Lesson.find(query)
-        .select(
-          'title topic description icon category level targetAges hobbies expectations lessonLanguage views instructorId createdAt'
-        )
-        .sort(sortObj)
-        .limit(limitNumber)
-        .skip(skip)
-        .populate('instructorId', 'username')
-        .lean();
+      const lessons =
+        await Lesson.find(query)
+          .sort(sortObj)
+          .limit(parseInt(limit))
+          .skip(skip)
+          .populate(
+            'instructorId',
+            'username email'
+          );
 
-      const total = await Lesson.countDocuments(query);
+      const total =
+        await Lesson.countDocuments(
+          query
+        );
 
       return res.status(200).json({
         success: true,
         count: lessons.length,
         total,
-        pages: Math.ceil(total / limitNumber),
-        currentPage: pageNumber,
+        pages: Math.ceil(
+          total / parseInt(limit)
+        ),
+        currentPage:
+          parseInt(page),
         lessons,
       });
     } catch (error) {
-      console.error('Error searching lessons:', error);
+      console.error(
+        'Error searching lessons:',
+        error
+      );
 
       return res.status(500).json({
-        message: 'שגיאה בחיפוש שיעורים',
+        message:
+          'שגיאה בחיפוש שיעורים',
         error: error.message,
       });
     }
   },
 
-  // 📊 סטטיסטיקות מורה
+  // סטטיסטיקות מורה
   getInstructorStats: async (req, res) => {
     const { instructorId } = req.params;
 
+    // ניהול הרשאות:
+    // המורה עצמה או Admin.
+    const isOwner =
+      instructorId.toString() ===
+      req.user.id.toString();
+
+    const isAdmin =
+      req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'אין לך הרשאה לצפות בסטטיסטיקות אלו',
+      });
+    }
+
     try {
-      if (!mongoose.Types.ObjectId.isValid(instructorId)) {
-        return res.status(400).json({ message: 'ID של מורה לא תקין' });
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          instructorId
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            'ID של מורה לא תקין',
+        });
       }
 
-      const totalLessons = await Lesson.countDocuments({ instructorId });
+      const totalLessons =
+        await Lesson.countDocuments({
+          instructorId,
+        });
 
-      const stats = await Lesson.aggregate([
-        {
-          $match: {
-            instructorId: new mongoose.Types.ObjectId(instructorId),
+      const stats =
+        await Lesson.aggregate([
+          {
+            $match: {
+              instructorId:
+                new mongoose.Types.ObjectId(
+                  instructorId
+                ),
+            },
           },
-        },
-        {
-          $group: {
-            _id: null,
-            totalViews: { $sum: '$views' },
-            totalStudents: { $sum: { $size: '$enrolledStudents' } },
-            averageEnrollment: { $avg: { $size: '$enrolledStudents' } },
-          },
-        },
-      ]);
+          {
+            $group: {
+              _id: null,
 
-      res.status(200).json({
+              totalViews: {
+                $sum: '$views',
+              },
+
+              totalStudents: {
+                $sum: {
+                  $size:
+                    '$enrolledStudents',
+                },
+              },
+
+              averageEnrollment: {
+                $avg: {
+                  $size:
+                    '$enrolledStudents',
+                },
+              },
+            },
+          },
+        ]);
+
+      return res.status(200).json({
         success: true,
+
         stats: {
           totalLessons,
-          totalViews: stats[0]?.totalViews || 0,
-          totalStudents: stats[0]?.totalStudents || 0,
-          averageEnrollment: Math.round(stats[0]?.averageEnrollment || 0),
+
+          totalViews:
+            stats[0]?.totalViews || 0,
+
+          totalStudents:
+            stats[0]?.totalStudents || 0,
+
+          averageEnrollment:
+            Math.round(
+              stats[0]
+                ?.averageEnrollment || 0
+            ),
         },
       });
     } catch (error) {
-      console.error('Error fetching instructor stats:', error);
+      console.error(
+        'Error fetching instructor stats:',
+        error
+      );
 
-      res.status(500).json({
-        message: 'שגיאה בקבלת סטטיסטיקות',
+      return res.status(500).json({
+        message:
+          'שגיאה בקבלת סטטיסטיקות',
         error: error.message,
       });
     }
