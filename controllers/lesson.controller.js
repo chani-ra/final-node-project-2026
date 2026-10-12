@@ -278,46 +278,54 @@ export const LessonController = {
         });
       }
 
-      const updatedLessonData = {
-        ...req.body,
-      };
+      const {
+        title,
+        description,
+        isPublic,
+        lessonLanguage,
+        topic,
+        icon,
+        category,
+        level,
+        targetAgeMin,
+        targetAgeMax,
+        hobbies,
+        expectations,
+      } = req.body;
 
-      if (updatedLessonData.hobbies) {
-        updatedLessonData.hobbies =
-          safeJsonParseArray(
-            updatedLessonData.hobbies
-          );
+      const updatedLessonData = {};
+
+      if (title !== undefined) updatedLessonData.title = title.trim();
+      if (description !== undefined) updatedLessonData.description = description.trim();
+      if (topic !== undefined) updatedLessonData.topic = topic.trim();
+      if (icon !== undefined) updatedLessonData.icon = icon;
+      if (category !== undefined) updatedLessonData.category = category;
+      if (level !== undefined) updatedLessonData.level = level;
+      if (lessonLanguage !== undefined) {
+        updatedLessonData.lessonLanguage = lessonLanguage;
       }
 
-      if (updatedLessonData.expectations) {
-        updatedLessonData.expectations =
-          safeJsonParseArray(
-            updatedLessonData.expectations
-          );
+      if (isPublic !== undefined) {
+        updatedLessonData.isPublic = parseBoolean(isPublic, oldLesson.isPublic);
       }
 
-      if (
-        updatedLessonData.targetAgeMin ||
-        updatedLessonData.targetAgeMax
-      ) {
-        updatedLessonData.targetAges =
-          buildTargetAges(
-            updatedLessonData.targetAgeMin,
-            updatedLessonData.targetAgeMax
-          );
-
-        delete updatedLessonData.targetAgeMin;
-        delete updatedLessonData.targetAgeMax;
+      if (hobbies !== undefined) {
+        updatedLessonData.hobbies = safeJsonParseArray(hobbies);
       }
 
-      if (
-        updatedLessonData.isPublic !== undefined
-      ) {
-        updatedLessonData.isPublic =
-          parseBoolean(
-            updatedLessonData.isPublic,
-            false
-          );
+      if (expectations !== undefined) {
+        updatedLessonData.expectations = safeJsonParseArray(expectations);
+      }
+
+      if (targetAgeMin !== undefined || targetAgeMax !== undefined) {
+        updatedLessonData.targetAges = {
+          min: targetAgeMin !== undefined
+            ? Number(targetAgeMin)
+            : oldLesson.targetAges?.min || 6,
+          max: targetAgeMax !== undefined
+            ? Number(targetAgeMax)
+            : oldLesson.targetAges?.max || 120,
+        };
       }
 
       if (req.file) {
@@ -583,7 +591,6 @@ export const LessonController = {
     const {
       search,
       language,
-      isPublic,
       category,
       level,
       limit = 10,
@@ -593,98 +600,62 @@ export const LessonController = {
     } = req.query;
 
     try {
-      const skip =
-        (parseInt(page) - 1) *
-        parseInt(limit);
+      const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNumber = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+      const skip = (pageNumber - 1) * limitNumber;
 
-      const query = {};
+      const allowedSortFields = ['createdAt', 'title', 'views', 'level'];
+      const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
 
-      if (search) {
+      const query = { isPublic: true };
+
+      if (search?.trim()) {
+        const searchText = search.trim();
+
         query.$or = [
-          {
-            title: {
-              $regex: search,
-              $options: 'i',
-            },
-          },
-          {
-            description: {
-              $regex: search,
-              $options: 'i',
-            },
-          },
-          {
-            topic: {
-              $regex: search,
-              $options: 'i',
-            },
-          },
+          { title: { $regex: searchText, $options: 'i' } },
+          { description: { $regex: searchText, $options: 'i' } },
+          { topic: { $regex: searchText, $options: 'i' } },
         ];
       }
 
-      if (language) {
-        query.lessonLanguage =
-          language;
-      }
-
-      if (isPublic !== undefined) {
-        query.isPublic =
-          isPublic === 'true';
-      }
-
-      if (category) {
-        query.category = category;
-      }
-
-      if (level) {
-        query.level = level;
-      }
+      if (language) query.lessonLanguage = language;
+      if (category) query.category = category;
+      if (level) query.level = level;
 
       const sortObj = {
-        [sortBy]:
-          order === 'desc' ? -1 : 1,
+        [safeSortBy]: order === 'asc' ? 1 : -1,
       };
 
-      const lessons =
-        await Lesson.find(query)
-          .sort(sortObj)
-          .limit(parseInt(limit))
-          .skip(skip)
-          .populate(
-            'instructorId',
-            'username email'
-          );
+      const lessons = await Lesson.find(query)
+        .select(
+          'title topic description icon category level targetAges hobbies expectations lessonLanguage views instructorId createdAt'
+        )
+        .sort(sortObj)
+        .limit(limitNumber)
+        .skip(skip)
+        .populate('instructorId', 'username')
+        .lean();
 
-      const total =
-        await Lesson.countDocuments(
-          query
-        );
+      const total = await Lesson.countDocuments(query);
 
       return res.status(200).json({
         success: true,
         count: lessons.length,
         total,
-        pages: Math.ceil(
-          total / parseInt(limit)
-        ),
-        currentPage:
-          parseInt(page),
+        pages: Math.ceil(total / limitNumber),
+        currentPage: pageNumber,
         lessons,
       });
     } catch (error) {
-      console.error(
-        'Error searching lessons:',
-        error
-      );
+      console.error('Error searching lessons:', error);
 
       return res.status(500).json({
-        message:
-          'שגיאה בחיפוש שיעורים',
+        message: 'שגיאה בחיפוש שיעורים',
         error: error.message,
       });
     }
   },
-
   // סטטיסטיקות מורה
   getInstructorStats: async (req, res) => {
     const { instructorId } = req.params;
