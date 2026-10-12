@@ -103,7 +103,7 @@ export const CourseController = {
     }
   },
 
-  enrollInCourse: async (req, res) => {
+  enrollInCourse: async (req, res, next) => {
     try {
       const { courseId } = req.params;
 
@@ -112,18 +112,17 @@ export const CourseController = {
         req.user.id
       );
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: result.message,
-        course: result.course,
+        courseId: result.courseId,
+        progressPercent: result.progressPercent,
       });
     } catch (error) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      next(error);
     }
   },
+
   getCourseById: async (req, res, next) => {
     try {
       const course = await CourseService.getCourseById(
@@ -134,6 +133,40 @@ export const CourseController = {
       return res.status(200).json({
         success: true,
         course,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  updateCourse: async (req, res, next) => {
+    try {
+      const updatedCourse = await CourseService.updateCourse(
+        req.params.courseId,
+        req.body,
+        req.user
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'הקורס עודכן בהצלחה',
+        course: updatedCourse,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  deleteCourse: async (req, res, next) => {
+    try {
+      const result = await CourseService.deleteCourse(
+        req.params.courseId,
+        req.user
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: result.message,
       });
     } catch (error) {
       next(error);
@@ -295,10 +328,26 @@ export const CourseController = {
 
   createPersonalizedCourse: async (req, res) => {
     try {
-      const { englishLevel, favoriteHobbies, expectations, customTitle } = req.body;
+      const {
+        englishLevel,
+        favoriteHobbies,
+        expectations,
+        customTitle,
+      } = req.body;
 
-      const allowedLevels = ["beginner", "intermediate", "advanced"];
-      const allowedHobbies = ["art_music", "sports", "movies", "books"];
+      const allowedLevels = [
+        "beginner",
+        "intermediate",
+        "advanced",
+      ];
+
+      const allowedHobbies = [
+        "art_music",
+        "sports",
+        "movies",
+        "books",
+      ];
+
       const allowedExpectations = [
         "grammar",
         "fluent_speaking",
@@ -314,11 +363,15 @@ export const CourseController = {
       }
 
       const validHobbies = Array.isArray(favoriteHobbies)
-        ? favoriteHobbies.filter((item) => allowedHobbies.includes(item))
+        ? favoriteHobbies.filter((item) =>
+            allowedHobbies.includes(item)
+          )
         : [];
 
       const validExpectations = Array.isArray(expectations)
-        ? expectations.filter((item) => allowedExpectations.includes(item))
+        ? expectations.filter((item) =>
+            allowedExpectations.includes(item)
+          )
         : [];
 
       const result =
