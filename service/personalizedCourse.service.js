@@ -5,6 +5,8 @@ import Exercise from "../models/exercise.model.js";
 import Quiz from "../models/quiz.model.js";
 import User from "../models/users.model.js";
 
+import { getOrCreateProgress } from "./progress.service.js";
+
 const categoryByExpectation = {
   grammar: "grammar",
   vocabulary: "vocabulary",
@@ -223,9 +225,9 @@ const PersonalizedCourseService = {
         preferences.customTitle?.trim() ||
         (preferences.isAdditionalCourse
           ? createCourseTitle(user, {
-              ...preferences,
-              englishLevel: courseLevel,
-            })
+            ...preferences,
+            englishLevel: courseLevel,
+          })
           : `המסלול האישי של ${user.username}`),
 
       description:
@@ -250,20 +252,16 @@ const PersonalizedCourseService = {
 
     await course.save();
 
-    user.enrolledCourses.addToSet(course._id);
-
-    user.courseProgress.push({
-      course: course._id,
-      progress: 0,
-      completedLessons: [],
-      completedExercises: [],
-      completedSongs: [],
-      completedQuizzes: [],
-      startedAt: new Date(),
-      lastAccessedAt: new Date(),
-    });
+    user.enrolledCourses.addToSet(
+      course._id
+    );
 
     await user.save();
+
+    await getOrCreateProgress(
+      user._id,
+      course._id
+    );
 
     return {
       course,
