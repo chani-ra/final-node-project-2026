@@ -5,7 +5,7 @@ import { EmailService } from "../service/emailService.js";
 import { markQuizCompleted } from "../service/progress.service.js";
 
 export const QuizController = {
-  // ➕ יצירת בוחן חדש
+  // יצירת בוחן חדש
   createQuiz: async (req, res) => {
     try {
       const {
@@ -17,8 +17,6 @@ export const QuizController = {
         questions,
         duration,
         passingScore,
-
-        // שדות התאמה חכמה
         category,
         targetAges,
         hobbies,
@@ -29,7 +27,6 @@ export const QuizController = {
       } = req.body;
 
       const teacherId = req.user.id;
-
       const teacher = await User.findById(teacherId);
 
       if (!teacher || teacher.role !== "teacher") {
@@ -44,24 +41,24 @@ export const QuizController = {
         });
       }
 
-      if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      if (!Array.isArray(questions) || questions.length === 0) {
         return res.status(400).json({
           message: "חובה להוסיף לפחות שאלה אחת",
         });
       }
 
       for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
+        const question = questions[i];
 
-        if (!q.question || !q.correctAnswer) {
+        if (!question.question || !question.correctAnswer) {
           return res.status(400).json({
             message: `שאלה ${i + 1}: טקסט השאלה ותשובה נכונה חובה`,
           });
         }
 
         if (
-          q.questionType === "multiple-choice" &&
-          (!Array.isArray(q.options) || q.options.length < 2)
+          question.questionType === "multiple-choice" &&
+          (!Array.isArray(question.options) || question.options.length < 2)
         ) {
           return res.status(400).json({
             message: `שאלה ${i + 1}: בשאלה אמריקאית חייבות להיות אפשרויות`,
@@ -71,8 +68,6 @@ export const QuizController = {
 
       let course = null;
 
-      // אם המורה בחרה קורס ספציפי — נשייך אליו
-      // אם לא — הבוחן נשמר כבוחן חכם כללי לפי תגיות
       if (courseId) {
         course = await Course.findById(courseId);
 
@@ -82,7 +77,7 @@ export const QuizController = {
           });
         }
 
-        if (course.instructorId.toString() !== teacherId) {
+        if (course.instructorId.toString() !== teacherId.toString()) {
           return res.status(403).json({
             message: "את יכולה ליצור בחנים רק לקורסים שלך",
           });
@@ -93,19 +88,14 @@ export const QuizController = {
         title: title.trim(),
         description: description?.trim() || "",
         courseId: courseId || null,
-
         englishLevel: englishLevel || "beginner",
         quizType: quizType || "mixed",
-
         questions,
         duration: Number(duration) || 30,
         passingScore: Number(passingScore) || 70,
-
         isActive: isActive !== false,
         isPublic: isPublic === true,
-
         createdBy: teacherId,
-
         category: category || "general",
         targetAges: targetAges || {
           min: 6,
@@ -113,16 +103,14 @@ export const QuizController = {
         },
         hobbies: Array.isArray(hobbies) ? hobbies : [],
         expectations: Array.isArray(expectations) ? expectations : [],
-
         generatedByAI: Boolean(generatedByAI),
         approvedByTeacher: true,
       });
 
       await newQuiz.save();
 
-      // אם יש קורס ספציפי — מכניסים אותו גם למערך quizzes של הקורס
       if (course) {
-        course.quizzes.push(newQuiz._id);
+        course.quizzes.addToSet(newQuiz._id);
         await course.save();
       }
 
@@ -134,13 +122,14 @@ export const QuizController = {
       });
     } catch (error) {
       console.error("Error creating quiz:", error);
+
       return res.status(400).json({
         message: error.message,
       });
     }
   },
 
-  // ✏️ עריכת בוחן על ידי המורה שיצרה אותו
+  // עריכת בוחן
   updateQuiz: async (req, res) => {
     try {
       const { quizId } = req.params;
@@ -170,26 +159,49 @@ export const QuizController = {
         });
       }
 
-      if (quiz.createdBy.toString() !== teacherId && req.user.role !== "admin") {
+      const isOwner =
+        quiz.createdBy.toString() === teacherId.toString();
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
         return res.status(403).json({
           message: "אפשר לערוך רק בחנים שאת יצרת",
         });
       }
 
       if (title !== undefined) quiz.title = title.trim();
-      if (description !== undefined) quiz.description = description?.trim() || "";
-      if (englishLevel !== undefined) quiz.englishLevel = englishLevel;
-      if (quizType !== undefined) quiz.quizType = quizType;
-      if (duration !== undefined) quiz.duration = Number(duration) || 30;
+
+      if (description !== undefined) {
+        quiz.description = description?.trim() || "";
+      }
+
+      if (englishLevel !== undefined) {
+        quiz.englishLevel = englishLevel;
+      }
+
+      if (quizType !== undefined) {
+        quiz.quizType = quizType;
+      }
+
+      if (duration !== undefined) {
+        quiz.duration = Number(duration) || 30;
+      }
 
       if (passingScore !== undefined) {
         quiz.passingScore = Number(passingScore) || 70;
       }
 
-      if (isActive !== undefined) quiz.isActive = Boolean(isActive);
-      if (isPublic !== undefined) quiz.isPublic = Boolean(isPublic);
+      if (isActive !== undefined) {
+        quiz.isActive = Boolean(isActive);
+      }
 
-      if (category !== undefined) quiz.category = category || "general";
+      if (isPublic !== undefined) {
+        quiz.isPublic = Boolean(isPublic);
+      }
+
+      if (category !== undefined) {
+        quiz.category = category || "general";
+      }
 
       if (targetAges !== undefined) {
         quiz.targetAges = {
@@ -203,7 +215,9 @@ export const QuizController = {
       }
 
       if (expectations !== undefined) {
-        quiz.expectations = Array.isArray(expectations) ? expectations : [];
+        quiz.expectations = Array.isArray(expectations)
+          ? expectations
+          : [];
       }
 
       if (questions !== undefined) {
@@ -214,17 +228,18 @@ export const QuizController = {
         }
 
         for (let i = 0; i < questions.length; i++) {
-          const q = questions[i];
+          const question = questions[i];
 
-          if (!q.question || !q.correctAnswer) {
+          if (!question.question || !question.correctAnswer) {
             return res.status(400).json({
               message: `שאלה ${i + 1}: טקסט השאלה ותשובה נכונה חובה`,
             });
           }
 
           if (
-            q.questionType === "multiple-choice" &&
-            (!Array.isArray(q.options) || q.options.length < 2)
+            question.questionType === "multiple-choice" &&
+            (!Array.isArray(question.options) ||
+              question.options.length < 2)
           ) {
             return res.status(400).json({
               message: `שאלה ${i + 1}: בשאלה אמריקאית חייבות להיות לפחות 2 אפשרויות`,
@@ -243,13 +258,14 @@ export const QuizController = {
       });
     } catch (error) {
       console.error("Error updating quiz:", error);
+
       return res.status(400).json({
         message: error.message,
       });
     }
   },
 
-  // 🔁 פרסום / החזרה לטיוטה של בוחן
+  // פרסום / החזרה לטיוטה
   updateQuizPublishStatus: async (req, res) => {
     try {
       const { quizId } = req.params;
@@ -264,7 +280,11 @@ export const QuizController = {
         });
       }
 
-      if (quiz.createdBy.toString() !== teacherId && req.user.role !== "admin") {
+      const isOwner =
+        quiz.createdBy.toString() === teacherId.toString();
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
         return res.status(403).json({
           message: "אפשר לעדכן רק בחנים שאת יצרת",
         });
@@ -283,13 +303,14 @@ export const QuizController = {
       });
     } catch (error) {
       console.error("Error updating quiz publish status:", error);
+
       return res.status(400).json({
         message: error.message,
       });
     }
   },
 
-  // 🗑️ מחיקת בוחן
+  // מחיקת בוחן
   deleteQuiz: async (req, res) => {
     try {
       const { quizId } = req.params;
@@ -303,7 +324,11 @@ export const QuizController = {
         });
       }
 
-      if (quiz.createdBy.toString() !== teacherId && req.user.role !== "admin") {
+      const isOwner =
+        quiz.createdBy.toString() === teacherId.toString();
+      const isAdmin = req.user.role === "admin";
+
+      if (!isOwner && !isAdmin) {
         return res.status(403).json({
           message: "אפשר למחוק רק בחנים שאת יצרת",
         });
@@ -311,7 +336,9 @@ export const QuizController = {
 
       if (quiz.courseId) {
         await Course.findByIdAndUpdate(quiz.courseId, {
-          $pull: { quizzes: quiz._id },
+          $pull: {
+            quizzes: quiz._id,
+          },
         });
       }
 
@@ -322,13 +349,14 @@ export const QuizController = {
       });
     } catch (error) {
       console.error("Error deleting quiz:", error);
+
       return res.status(400).json({
         message: error.message,
       });
     }
   },
 
-  // 📖 קבלת בחנים של קורס
+  // קבלת כל הבחנים של קורס
   getQuizzesByCourse: async (req, res) => {
     try {
       const { courseId } = req.params;
@@ -343,8 +371,12 @@ export const QuizController = {
       }
 
       const isStudentEnrolled = course.enrolledStudents.some(
-        (studentId) => studentId.toString() === userId.toString()
+        (studentId) =>
+          studentId.toString() === userId.toString()
       );
+
+      const isPersonalCourseOwner =
+        course.createdFor?.toString() === userId.toString();
 
       const isTeacherOfCourse =
         req.user.role === "teacher" &&
@@ -352,7 +384,12 @@ export const QuizController = {
 
       const isAdmin = req.user.role === "admin";
 
-      if (!isStudentEnrolled && !isTeacherOfCourse && !isAdmin) {
+      if (
+        !isStudentEnrolled &&
+        !isPersonalCourseOwner &&
+        !isTeacherOfCourse &&
+        !isAdmin
+      ) {
         return res.status(403).json({
           message: "אין לך הרשאה לצפות בבחנים של קורס זה",
         });
@@ -361,9 +398,13 @@ export const QuizController = {
       const quizIds = course.quizzes || [];
 
       const quizQuery = Quiz.find({
-        _id: { $in: quizIds },
+        _id: {
+          $in: quizIds,
+        },
         isActive: true,
-      }).sort({ createdAt: -1 });
+      }).sort({
+        createdAt: -1,
+      });
 
       if (!isTeacherOfCourse && !isAdmin) {
         quizQuery.select(
@@ -386,7 +427,7 @@ export const QuizController = {
     }
   },
 
-  // 📘 קבלת בוחן יחיד לתלמידה / מורה
+  // קבלת בוחן יחיד
   getQuizById: async (req, res) => {
     try {
       const { quizId } = req.params;
@@ -401,9 +442,12 @@ export const QuizController = {
         });
       }
 
-      const isTeacherOrAdmin =
-        quiz.createdBy.toString() === userId || req.user.role === "admin";
+      const isQuizOwnerTeacher =
+        req.user.role === "teacher" &&
+        quiz.createdBy.toString() === userId.toString();
 
+      const isAdmin = req.user.role === "admin";
+      const isTeacherOrAdmin = isQuizOwnerTeacher || isAdmin;
       const realCourseId = courseId || quiz.courseId || null;
 
       if (realCourseId && !isTeacherOrAdmin) {
@@ -416,34 +460,53 @@ export const QuizController = {
         }
 
         const isEnrolled = course.enrolledStudents.some(
-          (studentId) => studentId.toString() === userId
+          (studentId) =>
+            studentId.toString() === userId.toString()
         );
+
+        const isPersonalCourseOwner =
+          course.createdFor?.toString() === userId.toString();
 
         const courseContainsQuiz = course.quizzes?.some(
-          (courseQuizId) => courseQuizId.toString() === quizId
+          (courseQuizId) =>
+            courseQuizId.toString() === quizId.toString()
         );
 
-        if (!isEnrolled) {
+        if (!isEnrolled && !isPersonalCourseOwner) {
           return res.status(403).json({
-            message: "את צריכה להיות רשומה לקורס כדי לפתוח את הבוחן",
+            message: "אין לך הרשאה לפתוח את הבוחן בקורס זה",
           });
         }
 
         if (!courseContainsQuiz) {
           return res.status(403).json({
-            message: "הבוחן הזה לא נמצא במסלול האישי שלך",
+            message: "הבוחן הזה לא נמצא במסלול שלך",
           });
         }
+      } else if (
+        !realCourseId &&
+        !isTeacherOrAdmin &&
+        !quiz.isPublic
+      ) {
+        return res.status(403).json({
+          message: "אין לך הרשאה לפתוח בוחן זה",
+        });
       }
 
       const quizObject = quiz.toObject();
 
-      // תלמידה לא מקבלת תשובות נכונות והסברים לפני הגשה
       if (!isTeacherOrAdmin) {
-        quizObject.questions = quizObject.questions.map((question) => {
-          const { correctAnswer, explanation, ...safeQuestion } = question;
-          return safeQuestion;
-        });
+        quizObject.questions = quizObject.questions.map(
+          (question) => {
+            const {
+              correctAnswer,
+              explanation,
+              ...safeQuestion
+            } = question;
+
+            return safeQuestion;
+          }
+        );
       }
 
       return res.status(200).json({
@@ -451,19 +514,23 @@ export const QuizController = {
       });
     } catch (error) {
       console.error("Error fetching quiz:", error);
+
       return res.status(500).json({
         message: "שגיאה בטעינת הבוחן",
       });
     }
   },
 
-  // 📝 הגשת בחן בצורה שמתאימה לקורס אישי
+  // הגשת בוחן
   submitQuiz: async (req, res) => {
     try {
       const { quizId } = req.params;
+      const {
+        answers,
+        timeTaken,
+        courseId: courseIdFromBody,
+      } = req.body;
 
-      // answers = [{ questionIndex: 0, answer: "..." }, ...]
-      const { answers, timeTaken, courseId: courseIdFromBody } = req.body;
       const userId = req.user.id;
 
       const quiz = await Quiz.findById(quizId);
@@ -482,11 +549,16 @@ export const QuizController = {
         });
       }
 
-      const isTeacherOrAdmin =
-        quiz.createdBy.toString() === userId || req.user.role === "admin";
+      const isQuizOwnerTeacher =
+        req.user.role === "teacher" &&
+        quiz.createdBy.toString() === userId.toString();
+
+      const isAdmin = req.user.role === "admin";
+      const isTeacherOrAdmin = isQuizOwnerTeacher || isAdmin;
 
       let course = null;
-      const realCourseId = courseIdFromBody || quiz.courseId || null;
+      const realCourseId =
+        courseIdFromBody || quiz.courseId || null;
 
       if (realCourseId) {
         course = await Course.findById(realCourseId);
@@ -498,30 +570,40 @@ export const QuizController = {
         }
 
         const isEnrolled = course.enrolledStudents.some(
-          (studentId) => studentId.toString() === userId
+          (studentId) =>
+            studentId.toString() === userId.toString()
         );
+
+        const isPersonalCourseOwner =
+          course.createdFor?.toString() === userId.toString();
 
         const courseContainsQuiz = course.quizzes?.some(
-          (courseQuizId) => courseQuizId.toString() === quizId
+          (courseQuizId) =>
+            courseQuizId.toString() === quizId.toString()
         );
 
-        if (!isEnrolled && !isTeacherOrAdmin) {
+        if (
+          !isEnrolled &&
+          !isPersonalCourseOwner &&
+          !isTeacherOrAdmin
+        ) {
           return res.status(403).json({
-            message: "את צריכה להיות רשומה לקורס כדי להגיש את הבוחן",
+            message: "אין לך הרשאה להגיש את הבוחן בקורס זה",
           });
         }
 
         if (!courseContainsQuiz && !isTeacherOrAdmin) {
           return res.status(403).json({
-            message: "הבוחן הזה לא נמצא במסלול האישי שלך",
+            message: "הבוחן הזה לא נמצא במסלול שלך",
           });
         }
-      } else {
-        if (!isTeacherOrAdmin && !quiz.isPublic) {
-          return res.status(400).json({
-            message: "חסר מזהה קורס להגשת הבוחן",
-          });
-        }
+      } else if (
+        !isTeacherOrAdmin &&
+        !quiz.isPublic
+      ) {
+        return res.status(400).json({
+          message: "חסר מזהה קורס להגשת הבוחן",
+        });
       }
 
       let totalScore = 0;
@@ -529,7 +611,10 @@ export const QuizController = {
 
       quiz.questions.forEach((question, index) => {
         const userAnswerObj = Array.isArray(answers)
-          ? answers.find((a) => Number(a.questionIndex) === index)
+          ? answers.find(
+              (answer) =>
+                Number(answer.questionIndex) === index
+            )
           : null;
 
         const userAnswer = userAnswerObj
@@ -538,9 +623,13 @@ export const QuizController = {
 
         const isCorrect =
           userAnswer.toLowerCase().trim() ===
-          String(question.correctAnswer || "").toLowerCase().trim();
+          String(question.correctAnswer || "")
+            .toLowerCase()
+            .trim();
 
-        const points = isCorrect ? question.points || 1 : 0;
+        const points = isCorrect
+          ? question.points || 1
+          : 0;
 
         totalScore += points;
 
@@ -557,14 +646,20 @@ export const QuizController = {
       const totalPoints =
         quiz.totalPoints ||
         quiz.questions.reduce(
-          (sum, question) => sum + (question.points || 1),
+          (sum, question) =>
+            sum + (question.points || 1),
           0
         );
 
       const percentage =
-        totalPoints > 0 ? Math.round((totalScore / totalPoints) * 100) : 0;
+        totalPoints > 0
+          ? Math.round(
+              (totalScore / totalPoints) * 100
+            )
+          : 0;
 
-      const passed = percentage >= quiz.passingScore;
+      const passed =
+        percentage >= quiz.passingScore;
 
       user.quizResults.push({
         quiz: quizId,
@@ -578,7 +673,6 @@ export const QuizController = {
         completedAt: new Date(),
       });
 
-      // עדכון completedQuizzes בתוך courseProgress של הקורס האישי
       if (realCourseId) {
         await markQuizCompleted(
           userId,
@@ -587,13 +681,25 @@ export const QuizController = {
         );
       }
 
-      // עדכון רמה קליל
-      if (passed && quiz.englishLevel === user.englishLevel) {
-        const levels = ["beginner", "intermediate", "advanced"];
-        const currentIndex = levels.indexOf(user.englishLevel);
+      if (
+        passed &&
+        quiz.englishLevel === user.englishLevel
+      ) {
+        const levels = [
+          "beginner",
+          "intermediate",
+          "advanced",
+        ];
 
-        if (currentIndex >= 0 && currentIndex < levels.length - 1) {
-          user.englishLevel = levels[currentIndex + 1];
+        const currentIndex =
+          levels.indexOf(user.englishLevel);
+
+        if (
+          currentIndex >= 0 &&
+          currentIndex < levels.length - 1
+        ) {
+          user.englishLevel =
+            levels[currentIndex + 1];
         }
       }
 
@@ -629,20 +735,27 @@ export const QuizController = {
       });
     } catch (error) {
       console.error("Error submitting quiz:", error);
+
       return res.status(500).json({
         message: "שגיאה בהגשת הבחן",
       });
     }
   },
 
-  // 📊 קבלת תוצאות הבחנים של המשתמש
+  // קבלת תוצאות הבחנים של המשתמש
   getUserQuizResults: async (req, res) => {
     try {
       const userId = req.user.id;
 
       const user = await User.findById(userId)
-        .populate("quizResults.quiz", "title quizType englishLevel")
-        .populate("quizResults.course", "title");
+        .populate(
+          "quizResults.quiz",
+          "title quizType englishLevel"
+        )
+        .populate(
+          "quizResults.course",
+          "title"
+        );
 
       if (!user) {
         return res.status(404).json({
@@ -650,35 +763,50 @@ export const QuizController = {
         });
       }
 
-      const quizResults = [...(user.quizResults || [])].sort((a, b) => {
-        const dateA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
-        const dateB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+      const quizResults = [
+        ...(user.quizResults || []),
+      ].sort((a, b) => {
+        const dateA = a.completedAt
+          ? new Date(a.completedAt).getTime()
+          : 0;
+
+        const dateB = b.completedAt
+          ? new Date(b.completedAt).getTime()
+          : 0;
+
         return dateB - dateA;
       });
 
       return res.status(200).json({
         quizResults,
         totalQuizzes: quizResults.length,
-        passedQuizzes: quizResults.filter((result) => result.passed).length,
+        passedQuizzes: quizResults.filter(
+          (result) => result.passed
+        ).length,
         averageScore:
           quizResults.length > 0
             ? Math.round(
-              quizResults.reduce(
-                (sum, result) => sum + (result.percentage || 0),
-                0
-              ) / quizResults.length
-            )
+                quizResults.reduce(
+                  (sum, result) =>
+                    sum + (result.percentage || 0),
+                  0
+                ) / quizResults.length
+              )
             : 0,
       });
     } catch (error) {
-      console.error("Error fetching quiz results:", error);
+      console.error(
+        "Error fetching quiz results:",
+        error
+      );
+
       return res.status(500).json({
         message: "שגיאה בטעינת תוצאות הבחנים",
       });
     }
   },
 
-  // 👨‍🏫 קבלת בחנים של מורה
+  // קבלת בחנים של מורה
   getTeacherQuizzes: async (req, res) => {
     try {
       const teacherId = req.user.id;
@@ -686,7 +814,10 @@ export const QuizController = {
       const quizzes = await Quiz.find({
         createdBy: teacherId,
       })
-        .populate("courseId", "title category level")
+        .populate(
+          "courseId",
+          "title category level"
+        )
         .sort({
           createdAt: -1,
         });
@@ -695,7 +826,11 @@ export const QuizController = {
         quizzes,
       });
     } catch (error) {
-      console.error("Error fetching teacher quizzes:", error);
+      console.error(
+        "Error fetching teacher quizzes:",
+        error
+      );
+
       return res.status(500).json({
         message: "שגיאה בטעינת הבחנים",
       });
