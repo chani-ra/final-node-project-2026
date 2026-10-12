@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import Exercise from "../models/exercise.model.js";
 import Course from "../models/course.model.js";
 
+import { markExerciseCompleted } from "../service/progress.service.js";
+
 const allowedHobbies = ["art_music", "sports", "movies", "books"];
 const allowedExpectations = [
   "grammar",
@@ -406,15 +408,15 @@ export const ExerciseController = {
   },
 
   // סימון תרגיל כהושלם על ידי תלמיד
-  markCompleted: async (req, res) => {
+  markCompleted: async (req, res, next) => {
     try {
       const { exerciseId } = req.params;
-      const userId = req.user.id;
+      const { courseId } = req.body;
 
-      if (!mongoose.Types.ObjectId.isValid(exerciseId)) {
+      if (!courseId) {
         return res.status(400).json({
           success: false,
-          message: "ID של תרגיל לא תקין",
+          message: "מזהה קורס חובה",
         });
       }
 
@@ -427,31 +429,19 @@ export const ExerciseController = {
         });
       }
 
-      if (!exercise.isPublic) {
-        const canAccess = await canAccessPrivateExercise(exercise, req.user);
-
-        if (!canAccess) {
-          return res.status(403).json({
-            success: false,
-            message: "אין לך הרשאה לתרגיל זה",
-          });
-        }
-      }
+      const progress = await markExerciseCompleted(
+        req.user.id,
+        courseId,
+        exerciseId
+      );
 
       return res.status(200).json({
         success: true,
         message: "תרגיל סומן כהושלם",
-        exerciseId,
-        userId,
-        completedAt: new Date(),
+        progress,
       });
     } catch (error) {
-      console.error("Error marking exercise completed:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      next(error);
     }
   },
 };
