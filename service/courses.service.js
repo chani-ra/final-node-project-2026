@@ -1,38 +1,46 @@
 import Course from '../models/course.model.js';
 import User from '../models/users.model.js';
+import { getOrCreateProgress } from './progress.service.js';
 
 const hobbyCategoryMap = {
-  'art_music': ['conversation', 'listening'],
-  'sports': ['vocabulary', 'conversation'],
-  'movies': ['listening', 'vocabulary'],
-  'books': ['reading', 'grammar'],
+  art_music: ['conversation', 'listening'],
+  sports: ['vocabulary', 'conversation'],
+  movies: ['listening', 'vocabulary'],
+  books: ['reading', 'grammar'],
 };
 
 const getPreferredLevels = (user) => {
   if (!user || typeof user.age !== 'number') {
     return ['beginner', 'intermediate', 'advanced'];
   }
+
   if (user.age <= 12) return ['beginner'];
   if (user.age <= 16) return ['beginner', 'intermediate'];
+
   return ['beginner', 'intermediate', 'advanced'];
 };
 
 const buildRecommendationQuery = (user) => {
   const categories = new Set();
+
   if (Array.isArray(user.favoriteHobbies)) {
     user.favoriteHobbies.forEach((hobby) => {
       if (hobbyCategoryMap[hobby]) {
-        hobbyCategoryMap[hobby].forEach((category) => categories.add(category));
+        hobbyCategoryMap[hobby].forEach((category) =>
+          categories.add(category)
+        );
       }
     });
   }
 
   const query = { isPublic: true };
+
   if (categories.size) {
     query.category = { $in: Array.from(categories) };
   }
 
   const preferredLevels = getPreferredLevels(user);
+
   if (preferredLevels.length && preferredLevels.length < 3) {
     query.level = { $in: preferredLevels };
   }
@@ -44,28 +52,49 @@ const getCourseScore = (course, user, enrolledCourseIds) => {
   let score = 0;
 
   if (Array.isArray(user.favoriteHobbies)) {
-    const matches = Array.from(new Set(user.favoriteHobbies.flatMap((hobby) => hobbyCategoryMap[hobby] || [])));
-    if (matches.includes(course.category)) score += 40;
+    const matches = Array.from(
+      new Set(
+        user.favoriteHobbies.flatMap(
+          (hobby) => hobbyCategoryMap[hobby] || []
+        )
+      )
+    );
+
+    if (matches.includes(course.category)) {
+      score += 40;
+    }
   }
 
   if (user.age !== undefined) {
     const preferredLevels = getPreferredLevels(user);
-    if (preferredLevels.includes(course.level)) score += 20;
+
+    if (preferredLevels.includes(course.level)) {
+      score += 20;
+    }
   }
 
   if (user.parentOrChild === 'child' && course.category === 'general') {
     score += 20;
   }
 
-  if (user.parentOrChild === 'parent' && ['conversation', 'vocabulary'].includes(course.category)) {
+  if (
+    user.parentOrChild === 'parent' &&
+    ['conversation', 'vocabulary'].includes(course.category)
+  ) {
     score += 10;
   }
 
-  if (user.gender === 'female' && ['conversation', 'listening', 'reading'].includes(course.category)) {
+  if (
+    user.gender === 'female' &&
+    ['conversation', 'listening', 'reading'].includes(course.category)
+  ) {
     score += 5;
   }
 
-  if (user.gender === 'male' && ['grammar', 'vocabulary'].includes(course.category)) {
+  if (
+    user.gender === 'male' &&
+    ['grammar', 'vocabulary'].includes(course.category)
+  ) {
     score += 5;
   }
 
@@ -73,338 +102,459 @@ const getCourseScore = (course, user, enrolledCourseIds) => {
     score += 20;
   }
 
-  if (course.lessons?.length) score += Math.min(course.lessons.length, 5) * 2;
-  if (course.songs?.length) score += Math.min(course.songs.length, 3) * 2;
-  if (course.quizzes?.length) score += Math.min(course.quizzes.length, 3) * 3;
-  if (typeof course.rating === 'number' && course.rating > 0) score += course.rating * 3;
+  if (course.lessons?.length) {
+    score += Math.min(course.lessons.length, 5) * 2;
+  }
+
+  if (course.songs?.length) {
+    score += Math.min(course.songs.length, 3) * 2;
+  }
+
+  if (course.quizzes?.length) {
+    score += Math.min(course.quizzes.length, 3) * 3;
+  }
+
+  if (typeof course.rating === 'number' && course.rating > 0) {
+    score += course.rating * 3;
+  }
 
   return score;
 };
 
 export const CourseService = {
-  // 🔥 אופטימיזציה: הפילטור נעשה ב-DB ולא בזיכרון של השרת
   getRecommendedCourses: async (user) => {
-    try {
-      const query = buildRecommendationQuery(user);
-      const enrolledCourseIds = user.enrolledCourses?.map((id) => String(id)) || [];
+    const query = buildRecommendationQuery(user);
+    const enrolledCourseIds =
+      user.enrolledCourses?.map((id) => String(id)) || [];
 
-      // מונע מראש הבאה של קורסים שהמשתמש כבר רשום אליהם
-      if (enrolledCourseIds.length > 0) {
-        query._id = { $nin: enrolledCourseIds };
-      }
-
-      const courses = await Course.find(query)
-        .populate('instructorId', 'username email')
-        .populate('lessons')
-        .populate('songs')
-        .populate('exercises')
-        .populate('quizzes')
-        .sort({ createdAt: -1 });
-
-      const recommended = courses
-        .map((course) => ({ course, score: getCourseScore(course, user, enrolledCourseIds) }))
-        .sort((a, b) => b.score - a.score)
-        .map((entry) => entry.course);
-
-      return recommended.slice(0, 10);
-    } catch (error) {
-      throw error;
+    if (enrolledCourseIds.length > 0) {
+      query._id = { $nin: enrolledCourseIds };
     }
+
+    const courses = await Course.find(query)
+      .populate('instructorId', 'username email')
+      .populate('lessons')
+      .populate('songs')
+      .populate('exercises')
+      .populate('quizzes')
+      .sort({ createdAt: -1 });
+
+    return courses
+      .map((course) => ({
+        course,
+        score: getCourseScore(course, user, enrolledCourseIds),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map((entry) => entry.course);
   },
 
   createCourse: async (courseData, instructorId) => {
-    try {
-      if (!courseData.title || !courseData.category) {
-        throw new Error('שם קורס וקטגוריה חובה');
-      }
-
-      const newCourse = new Course({
-        ...courseData,
-        instructorId,
-      });
-
-      await newCourse.save();
-      await newCourse.populate('instructorId', 'username email');
-
-      return newCourse;
-    } catch (error) {
-      throw error;
+    if (!courseData.title || !courseData.category) {
+      throw new Error('שם קורס וקטגוריה חובה');
     }
+
+    const newCourse = new Course({
+      ...courseData,
+      instructorId,
+    });
+
+    await newCourse.save();
+    await newCourse.populate('instructorId', 'username email');
+
+    return newCourse;
   },
 
-  getCourseById: async (courseId) => {
-    try {
-      const course = await Course.findByIdAndUpdate(
-        courseId,
-        { $inc: { totalViews: 1 } },
-        { new: true }
-      )
-        .populate('instructorId', 'username email')
-        .populate('lessons')
-        .populate('songs')
-        .populate('exercises')
-        .populate('quizzes')
-        .populate('enrolledStudents', 'username email');
+  getCourseById: async (courseId, requestingUser) => {
+    const course = await Course.findById(courseId)
+      .populate('instructorId', 'username')
+      .populate('lessons')
+      .populate('songs')
+      .populate('exercises')
+      .populate('quizzes');
 
-      if (!course) {
-        throw new Error('קורס לא נמצא');
-      }
-
-      return course;
-    } catch (error) {
+    if (!course) {
+      const error = new Error('קורס לא נמצא');
+      error.status = 404;
       throw error;
     }
-  },
 
-  getInstructorCourses: async (instructorId, page = 1, limit = 10) => {
-    try {
-      const skip = (page - 1) * limit;
+    const userId = requestingUser.id.toString();
 
-      const courses = await Course.find({ instructorId })
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(skip)
-        .populate('instructorId', 'username email')
-        .populate('lessons')
-        .populate('songs');
+    const instructorId =
+      course.instructorId?._id?.toString() ||
+      course.instructorId?.toString();
 
-      const total = await Course.countDocuments({ instructorId });
+    const createdForId = course.createdFor?.toString();
 
-      return {
-        courses,
-        total,
-        pages: Math.ceil(total / limit),
-        currentPage: page,
-      };
-    } catch (error) {
+    const isAdmin = requestingUser.role === 'admin';
+    const isInstructor = instructorId === userId;
+    const isOwner = createdForId === userId;
+
+    const isEnrolled = (course.enrolledStudents || []).some(
+      (studentId) => studentId.toString() === userId
+    );
+
+    const canViewCourse =
+      course.isPublic ||
+      isAdmin ||
+      isInstructor ||
+      isOwner ||
+      isEnrolled;
+
+    if (!canViewCourse) {
+      const error = new Error('אין לך הרשאה לצפות בקורס זה');
+      error.status = 403;
       throw error;
     }
+
+    await Course.updateOne(
+      { _id: courseId },
+      { $inc: { totalViews: 1 } }
+    );
+
+    course.totalViews = (course.totalViews || 0) + 1;
+
+    const safeCourse = course.toObject();
+
+    // רשימת הנרשמים היא מידע פנימי ולא נשלחת במסלול הרגיל.
+    delete safeCourse.enrolledStudents;
+
+    return safeCourse;
   },
 
   updateCourse: async (courseId, courseData, userId) => {
-    try {
-      const course = await Course.findById(courseId);
+    const course = await Course.findById(courseId);
 
-      if (!course) {
-        throw new Error('קורס לא נמצא');
-      }
-
-      if (course.instructorId.toString() !== userId) {
-        throw new Error('אתה לא מורשה לערוך קורס זה');
-      }
-
-      const updatedCourse = await Course.findByIdAndUpdate(
-        courseId,
-        { ...courseData, updatedAt: Date.now() },
-        { new: true }
-      );
-
-      return updatedCourse;
-    } catch (error) {
+    if (!course) {
+      const error = new Error('קורס לא נמצא');
+      error.status = 404;
       throw error;
     }
+
+    if (course.instructorId.toString() !== userId.toString()) {
+      const error = new Error('אתה לא מורשה לערוך קורס זה');
+      error.status = 403;
+      throw error;
+    }
+
+    return Course.findByIdAndUpdate(
+      courseId,
+      {
+        ...courseData,
+        updatedAt: Date.now(),
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
   },
 
   deleteCourse: async (courseId, userId) => {
-    try {
-      const course = await Course.findById(courseId);
+    const course = await Course.findById(courseId);
 
-      if (!course) {
-        throw new Error('קורס לא נמצא');
-      }
-
-      if (course.instructorId.toString() !== userId) {
-        throw new Error('אתה לא מורשה למחוק קורס זה');
-      }
-
-      await Course.findByIdAndDelete(courseId);
-
-      return { message: 'קורס נמחק בהצלחה' };
-    } catch (error) {
+    if (!course) {
+      const error = new Error('קורס לא נמצא');
+      error.status = 404;
       throw error;
     }
+
+    if (course.instructorId.toString() !== userId.toString()) {
+      const error = new Error('אתה לא מורשה למחוק קורס זה');
+      error.status = 403;
+      throw error;
+    }
+
+    await Course.findByIdAndDelete(courseId);
+
+    return {
+      message: 'קורס נמחק בהצלחה',
+    };
   },
 
-  // 🔥 אופטימיזציה: שימוש ב-$addToSet אטומי למניעת Race Conditions וכפילויות
   enrollStudentInCourse: async (courseId, studentId) => {
-    try {
-      // עדכון הקורס - הוספת הסטודנט רק אם הוא לא קיים שם
-      const updatedCourse = await Course.findOneAndUpdate(
-        { _id: courseId, enrolledStudents: { $ne: studentId } },
-        { $addToSet: { enrolledStudents: studentId } },
-        { new: true }
-      );
+    const course = await Course.findById(courseId).select(
+      'isPublic enrolledStudents'
+    );
 
-      if (!updatedCourse) {
-        // אם לא חזר קורס, או שהקורס לא קיים או שהסטודנט כבר רשום
-        const courseExists = await Course.exists({ _id: courseId });
-        if (!courseExists) throw new Error('קורס לא נמצא');
-        throw new Error('אתה כבר רשום לקורס זה');
-      }
-
-      // עדכון המשתמש - הוספת הקורס
-      const updatedUser = await User.findOneAndUpdate(
-        { _id: studentId, enrolledCourses: { $ne: courseId } },
-        { $addToSet: { enrolledCourses: courseId } }
-      );
-
-      if (!updatedUser) {
-        throw new Error('משתמש לא נמצא או שכבר רשום לקורס');
-      }
-
-      return { message: 'נרשמת לקורס בהצלחה', course: updatedCourse };
-    } catch (error) {
+    if (!course) {
+      const error = new Error('קורס לא נמצא');
+      error.status = 404;
       throw error;
     }
+
+    // הרשמה ידנית מותרת רק לקורסים ציבוריים של מורים.
+    // קורס אישי נוצר ונרשם אוטומטית עבור המשתמש שלו.
+    if (!course.isPublic) {
+      const error = new Error('לא ניתן להירשם לקורס פרטי');
+      error.status = 403;
+      throw error;
+    }
+
+    const userExists = await User.exists({ _id: studentId });
+
+    if (!userExists) {
+      const error = new Error('משתמש לא נמצא');
+      error.status = 404;
+      throw error;
+    }
+
+    const alreadyEnrolled = course.enrolledStudents.some(
+      (userId) => userId.toString() === studentId.toString()
+    );
+
+    if (alreadyEnrolled) {
+      const error = new Error('אתה כבר רשום לקורס זה');
+      error.status = 409;
+      throw error;
+    }
+
+    await Promise.all([
+      Course.findByIdAndUpdate(courseId, {
+        $addToSet: { enrolledStudents: studentId },
+      }),
+
+      User.findByIdAndUpdate(studentId, {
+        $addToSet: { enrolledCourses: courseId },
+      }),
+    ]);
+
+    // כל הרשמה לקורס מקבלת רשומת התקדמות מרכזית משלה.
+    const progress = await getOrCreateProgress(studentId, courseId);
+
+    return {
+      message: 'נרשמת לקורס בהצלחה',
+      courseId,
+      progressPercent: progress.progressPercent,
+    };
   },
 
   getEnrolledCourses: async (userId, page = 1, limit = 10) => {
-    try {
-      const user = await User.findById(userId);
-      if (!user) {
-        throw new Error('משתמש לא נמצא');
-      }
+    const user = await User.findById(userId);
 
-      const enrolledCourseIds = user.enrolledCourses || [];
-      const skip = (page - 1) * limit;
-
-      const courses = await Course.find({ _id: { $in: enrolledCourseIds } })
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(skip)
-        .populate('instructorId', 'username email')
-        .populate('lessons')
-        .populate('songs');
-
-      const total = enrolledCourseIds.length;
-
-      return {
-        courses,
-        total,
-        pages: Math.ceil(total / limit),
-        currentPage: page,
-      };
-    } catch (error) {
+    if (!user) {
+      const error = new Error('משתמש לא נמצא');
+      error.status = 404;
       throw error;
     }
+
+    const enrolledCourseIds = user.enrolledCourses || [];
+    const skip = (page - 1) * limit;
+
+    const courses = await Course.find({
+      _id: { $in: enrolledCourseIds },
+    })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip)
+      .populate('instructorId', 'username email')
+      .populate('lessons')
+      .populate('songs');
+
+    return {
+      courses,
+      total: enrolledCourseIds.length,
+      pages: Math.ceil(enrolledCourseIds.length / limit),
+      currentPage: page,
+    };
   },
 
-  // 🔥 אופטימיזציה: פונקציות הוספת תוכן קצרות ובטוחות יותר באמצעות findOneAndUpdate
   addLessonToCourse: async (courseId, lessonId, userId) => {
-    try {
-      const course = await Course.findOneAndUpdate(
-        { _id: courseId, instructorId: userId },
-        { $addToSet: { lessons: lessonId } },
-        { new: true }
-      );
+    const course = await Course.findOneAndUpdate(
+      {
+        _id: courseId,
+        instructorId: userId,
+      },
+      {
+        $addToSet: { lessons: lessonId },
+      },
+      {
+        new: true,
+      }
+    );
 
-      if (!course) {
-        const courseExists = await Course.exists({ _id: courseId });
-        if (!courseExists) throw new Error('קורס לא נמצא');
-        throw new Error('אתה לא מורשה לעדכן קורס זה או שהשיעור כבר קיים');
+    if (!course) {
+      const courseExists = await Course.exists({ _id: courseId });
+
+      if (!courseExists) {
+        const error = new Error('קורס לא נמצא');
+        error.status = 404;
+        throw error;
       }
 
-      return { message: 'שיעור התווסף בהצלחה', course };
-    } catch (error) {
+      const error = new Error(
+        'אתה לא מורשה לעדכן קורס זה או שהשיעור כבר קיים'
+      );
+      error.status = 403;
       throw error;
     }
+
+    return {
+      message: 'שיעור התווסף בהצלחה',
+      course,
+    };
   },
 
   addSongToCourse: async (courseId, songId, userId) => {
-    try {
-      const course = await Course.findOneAndUpdate(
-        { _id: courseId, instructorId: userId },
-        { $addToSet: { songs: songId } },
-        { new: true }
-      );
+    const course = await Course.findOneAndUpdate(
+      {
+        _id: courseId,
+        instructorId: userId,
+      },
+      {
+        $addToSet: { songs: songId },
+      },
+      {
+        new: true,
+      }
+    );
 
-      if (!course) {
-        const courseExists = await Course.exists({ _id: courseId });
-        if (!courseExists) throw new Error('קורס לא נמצא');
-        throw new Error('אתה לא מורשה לעדכן קורס זה או שהשיר כבר קיים');
+    if (!course) {
+      const courseExists = await Course.exists({ _id: courseId });
+
+      if (!courseExists) {
+        const error = new Error('קורס לא נמצא');
+        error.status = 404;
+        throw error;
       }
 
-      return { message: 'שיר התווסף בהצלחה', course };
-    } catch (error) {
+      const error = new Error(
+        'אתה לא מורשה לעדכן קורס זה או שהשיר כבר קיים'
+      );
+      error.status = 403;
       throw error;
     }
+
+    return {
+      message: 'שיר התווסף בהצלחה',
+      course,
+    };
   },
 
   addExerciseToCourse: async (courseId, exerciseId, userId) => {
-    try {
-      const course = await Course.findOneAndUpdate(
-        { _id: courseId, instructorId: userId },
-        { $addToSet: { exercises: exerciseId } },
-        { new: true }
-      );
+    const course = await Course.findOneAndUpdate(
+      {
+        _id: courseId,
+        instructorId: userId,
+      },
+      {
+        $addToSet: { exercises: exerciseId },
+      },
+      {
+        new: true,
+      }
+    );
 
-      if (!course) {
-        const courseExists = await Course.exists({ _id: courseId });
-        if (!courseExists) throw new Error('קורס לא נמצא');
-        throw new Error('אתה לא מורשה לעדכן קורס זה או שהתרגיל כבר קיים');
+    if (!course) {
+      const courseExists = await Course.exists({ _id: courseId });
+
+      if (!courseExists) {
+        const error = new Error('קורס לא נמצא');
+        error.status = 404;
+        throw error;
       }
 
-      return { message: 'תרגיל התווסף בהצלחה', course };
-    } catch (error) {
+      const error = new Error(
+        'אתה לא מורשה לעדכן קורס זה או שהתרגיל כבר קיים'
+      );
+      error.status = 403;
       throw error;
     }
+
+    return {
+      message: 'תרגיל התווסף בהצלחה',
+      course,
+    };
   },
 
   addQuizToCourse: async (courseId, quizId, userId) => {
-    try {
-      const course = await Course.findOneAndUpdate(
-        { _id: courseId, instructorId: userId },
-        { $addToSet: { quizzes: quizId } },
-        { new: true }
-      );
+    const course = await Course.findOneAndUpdate(
+      {
+        _id: courseId,
+        instructorId: userId,
+      },
+      {
+        $addToSet: { quizzes: quizId },
+      },
+      {
+        new: true,
+      }
+    );
 
-      if (!course) {
-        const courseExists = await Course.exists({ _id: courseId });
-        if (!courseExists) throw new Error('קורס לא נמצא');
-        throw new Error('אתה לא מורשה לעדכן קורס זה או שהבוחן כבר קיים');
+    if (!course) {
+      const courseExists = await Course.exists({ _id: courseId });
+
+      if (!courseExists) {
+        const error = new Error('קורס לא נמצא');
+        error.status = 404;
+        throw error;
       }
 
-      return { message: 'בחן התווסף בהצלחה', course };
-    } catch (error) {
+      const error = new Error(
+        'אתה לא מורשה לעדכן קורס זה או שהבוחן כבר קיים'
+      );
+      error.status = 403;
       throw error;
     }
+
+    return {
+      message: 'בחן התווסף בהצלחה',
+      course,
+    };
   },
 
   searchCourses: async (query, page = 1, limit = 10) => {
-    try {
-      const skip = (page - 1) * limit;
-      const filter = { isPublic: true };
+    const skip = (page - 1) * limit;
+    const filter = { isPublic: true };
 
-      if (query.search) {
-        filter.$or = [
-          { title: { $regex: query.search, $options: 'i' } },
-          { description: { $regex: query.search, $options: 'i' } },
-          { category: { $regex: query.search, $options: 'i' } },
-        ];
-      }
-
-      if (query.category) filter.category = query.category;
-      if (query.level) filter.level = query.level;
-
-      const courses = await Course.find(filter)
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(skip)
-        .populate('instructorId', 'username email')
-        .populate('lessons')
-        .populate('songs');
-
-      const total = await Course.countDocuments(filter);
-
-      return {
-        courses,
-        total,
-        pages: Math.ceil(total / limit),
-        currentPage: page,
-      };
-    } catch (error) {
-      throw error;
+    if (query.search) {
+      filter.$or = [
+        {
+          title: {
+            $regex: query.search,
+            $options: 'i',
+          },
+        },
+        {
+          description: {
+            $regex: query.search,
+            $options: 'i',
+          },
+        },
+        {
+          category: {
+            $regex: query.search,
+            $options: 'i',
+          },
+        },
+      ];
     }
+
+    if (query.category) {
+      filter.category = query.category;
+    }
+
+    if (query.level) {
+      filter.level = query.level;
+    }
+
+    const courses = await Course.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip)
+      .populate('instructorId', 'username email')
+      .populate('lessons')
+      .populate('songs');
+
+    const total = await Course.countDocuments(filter);
+
+    return {
+      courses,
+      total,
+      pages: Math.ceil(total / limit),
+      currentPage: page,
+    };
   },
 };
 
