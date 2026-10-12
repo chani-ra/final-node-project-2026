@@ -4,6 +4,8 @@ import fs from "fs/promises";
 import { existsSync, createReadStream, statSync } from "fs";
 import path from "path";
 
+import { cleanupContentReferences } from "../service/contentCleanup.service.js";
+
 const allowedHobbies = ["art_music", "sports", "movies", "books"];
 const allowedExpectations = [
   "grammar",
@@ -447,7 +449,7 @@ export const SongsController = {
   },
 
   // מחיקת שיר על ידי המורה שיצרה אותו או מנהל
-  deleteSong: async (req, res) => {
+  deleteSong: async (req, res, next) => {
     try {
       const { id } = req.params;
 
@@ -477,7 +479,8 @@ export const SongsController = {
         });
       }
 
-      await Song.findByIdAndDelete(id);
+      await cleanupContentReferences("song", song._id);
+      await Song.findByIdAndDelete(song._id);
 
       if (song.audioFileName) {
         await removeFileIfExists(getSongFilePath(song.audioFileName));
@@ -488,12 +491,7 @@ export const SongsController = {
         message: "שיר נמחק בהצלחה",
       });
     } catch (error) {
-      console.error("Error deleting song:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      next(error);
     }
   },
 

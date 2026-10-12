@@ -3,6 +3,7 @@ import Exercise from "../models/exercise.model.js";
 import Course from "../models/course.model.js";
 
 import { markExerciseCompleted } from "../service/progress.service.js";
+import { cleanupContentReferences } from "../service/contentCleanup.service.js";
 
 const allowedHobbies = ["art_music", "sports", "movies", "books"];
 const allowedExpectations = [
@@ -360,7 +361,7 @@ export const ExerciseController = {
   },
 
   // מחיקת תרגיל
-  deleteExercise: async (req, res) => {
+  deleteExercise: async (req, res, next) => {
     try {
       const { exerciseId } = req.params;
 
@@ -380,8 +381,7 @@ export const ExerciseController = {
         });
       }
 
-      const isOwner =
-        exercise.createdBy.toString() === req.user.id.toString();
+      const isOwner = exercise.createdBy.toString() === req.user.id.toString();
       const isAdmin = req.user.role === "admin";
 
       if (!isOwner && !isAdmin) {
@@ -391,19 +391,15 @@ export const ExerciseController = {
         });
       }
 
-      await Exercise.findByIdAndDelete(exerciseId);
+      await cleanupContentReferences("exercise", exercise._id);
+      await Exercise.findByIdAndDelete(exercise._id);
 
       return res.status(200).json({
         success: true,
         message: "תרגיל נמחק בהצלחה",
       });
     } catch (error) {
-      console.error("Error deleting exercise:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      next(error);
     }
   },
 
