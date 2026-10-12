@@ -37,17 +37,31 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+const allowedOrigins = (process.env.CLIENT_ORIGINS || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Origin is not allowed by CORS"));
+  },
+  credentials: true,
+};
+
 const startApp = async () => {
   await connectDB();
   await seedDefaultData();
 
+  app.use(cors(corsOptions));
   app.use(json());
   app.use(urlencoded({ extended: true }));
-
-  app.use(cors());
   app.use(morgan("dev"));
 
-  // Public media only - private files cannot bypass controller permissions
   app.use(
     "/uploads/videos",
     allowPublicLessonVideo,
