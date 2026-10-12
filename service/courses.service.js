@@ -756,30 +756,31 @@ export const CourseService = {
     page = 1,
     limit = 10
   ) => {
-    const skip =
-      (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
     const filter = {
       isPublic: true,
     };
 
-    if (query.search) {
+    if (query.search?.trim()) {
+      const search = query.search.trim();
+
       filter.$or = [
         {
           title: {
-            $regex: query.search,
+            $regex: search,
             $options: 'i',
           },
         },
         {
           description: {
-            $regex: query.search,
+            $regex: search,
             $options: 'i',
           },
         },
         {
           category: {
-            $regex: query.search,
+            $regex: search,
             $options: 'i',
           },
         },
@@ -787,40 +788,59 @@ export const CourseService = {
     }
 
     if (query.category) {
-      filter.category =
-        query.category;
+      filter.category = query.category;
     }
 
     if (query.level) {
-      filter.level =
-        query.level;
+      filter.level = query.level;
     }
 
-    const courses =
-      await Course.find(filter)
-        .sort({
-          createdAt: -1,
-        })
-        .limit(limit)
-        .skip(skip)
-        .populate(
-          'instructorId',
-          'username email'
-        )
-        .populate('lessons')
-        .populate('songs');
+    const courses = await Course.find(filter)
+      .select(
+        'title description category level rating instructorId lessons songs exercises quizzes createdAt'
+      )
+      .populate(
+        'instructorId',
+        'username'
+      )
+      .sort({
+        createdAt: -1,
+      })
+      .limit(limit)
+      .skip(skip)
+      .lean();
 
     const total =
-      await Course.countDocuments(
-        filter
-      );
+      await Course.countDocuments(filter);
+
+    const coursePreviews = courses.map(
+      (course) => ({
+        _id: course._id,
+        title: course.title,
+        description: course.description,
+        category: course.category,
+        level: course.level,
+        rating: course.rating || 0,
+        instructor: course.instructorId,
+        createdAt: course.createdAt,
+
+        contentSummary: {
+          lessons:
+            course.lessons?.length || 0,
+          songs:
+            course.songs?.length || 0,
+          exercises:
+            course.exercises?.length || 0,
+          quizzes:
+            course.quizzes?.length || 0,
+        },
+      })
+    );
 
     return {
-      courses,
+      courses: coursePreviews,
       total,
-      pages: Math.ceil(
-        total / limit
-      ),
+      pages: Math.ceil(total / limit),
       currentPage: page,
     };
   },

@@ -34,6 +34,12 @@ router.get(
   CourseController.getRecommendedCourses
 );
 
+router.get(
+  "/discover",
+  authenticateToken,
+  CourseController.discoverCourses
+);
+
 router.post(
   "/:courseId/enroll",
   authenticateToken,

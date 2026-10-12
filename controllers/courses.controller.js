@@ -31,6 +31,33 @@ export const CourseController = {
     }
   },
 
+  discoverCourses: async (req, res, next) => {
+    try {
+      const page = Math.max(parseInt(req.query.page) || 1, 1);
+      const limit = Math.min(
+        Math.max(parseInt(req.query.limit) || 12, 1),
+        50
+      );
+
+      const result = await CourseService.searchCourses(
+        {
+          search: req.query.search,
+          category: req.query.category,
+          level: req.query.level,
+        },
+        page,
+        limit
+      );
+
+      return res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   createCourse: async (req, res) => {
     try {
       const {
@@ -364,14 +391,14 @@ export const CourseController = {
 
       const validHobbies = Array.isArray(favoriteHobbies)
         ? favoriteHobbies.filter((item) =>
-            allowedHobbies.includes(item)
-          )
+          allowedHobbies.includes(item)
+        )
         : [];
 
       const validExpectations = Array.isArray(expectations)
         ? expectations.filter((item) =>
-            allowedExpectations.includes(item)
-          )
+          allowedExpectations.includes(item)
+        )
         : [];
 
       const result =
