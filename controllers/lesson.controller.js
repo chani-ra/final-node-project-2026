@@ -393,7 +393,6 @@ export const LessonController = {
     const {
       search,
       language,
-      isPublic,
       category,
       level,
       limit = 10,
@@ -403,44 +402,94 @@ export const LessonController = {
     } = req.query;
 
     try {
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-      const query = {};
+      const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNumber = Math.min(
+        Math.max(parseInt(limit, 10) || 10, 1),
+        50
+      );
 
-      if (search) {
+      const skip = (pageNumber - 1) * limitNumber;
+
+      const allowedSortFields = [
+        'createdAt',
+        'title',
+        'views',
+        'level',
+      ];
+
+      const safeSortBy = allowedSortFields.includes(sortBy)
+        ? sortBy
+        : 'createdAt';
+
+      const query = {
+        isPublic: true,
+      };
+
+      if (search?.trim()) {
+        const searchText = search.trim();
+
         query.$or = [
-          { title: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } },
-          { topic: { $regex: search, $options: 'i' } },
+          {
+            title: {
+              $regex: searchText,
+              $options: 'i',
+            },
+          },
+          {
+            description: {
+              $regex: searchText,
+              $options: 'i',
+            },
+          },
+          {
+            topic: {
+              $regex: searchText,
+              $options: 'i',
+            },
+          },
         ];
       }
 
-      if (language) query.lessonLanguage = language;
-      if (isPublic !== undefined) query.isPublic = isPublic === 'true';
-      if (category) query.category = category;
-      if (level) query.level = level;
+      if (language) {
+        query.lessonLanguage = language;
+      }
 
-      const sortObj = { [sortBy]: order === 'desc' ? -1 : 1 };
+      if (category) {
+        query.category = category;
+      }
+
+      if (level) {
+        query.level = level;
+      }
+
+      const sortObj = {
+        [safeSortBy]: order === 'asc' ? 1 : -1,
+      };
 
       const lessons = await Lesson.find(query)
+        .select(
+          'title topic description icon category level targetAges hobbies expectations lessonLanguage views instructorId createdAt'
+        )
         .sort(sortObj)
-        .limit(parseInt(limit))
+        .limit(limitNumber)
         .skip(skip)
-        .populate('instructorId', 'username email');
+        .populate('instructorId', 'username')
+        .lean();
 
       const total = await Lesson.countDocuments(query);
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         count: lessons.length,
         total,
-        pages: Math.ceil(total / parseInt(limit)),
-        currentPage: parseInt(page),
+        pages: Math.ceil(total / limitNumber),
+        currentPage: pageNumber,
         lessons,
       });
     } catch (error) {
       console.error('Error searching lessons:', error);
 
-      res.status(500).json({
+      return res.status(500).json({
         message: 'שגיאה בחיפוש שיעורים',
         error: error.message,
       });
