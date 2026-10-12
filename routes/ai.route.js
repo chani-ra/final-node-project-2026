@@ -13,10 +13,10 @@ router.post("/grammar-correct", AiController.correctGrammar);
 // תרגום טקסט
 router.post("/translate", AiController.translateText);
 
-// עזרה במילון - מציאת מילים דומות, הסברים וכו'
+// עזרה במילון
 router.post("/dictionary-helper", AiController.dictionaryHelper);
 
-// תרגול שיחה אמיתי מול AI
+// תרגול שיחה מול AI
 router.post("/conversation", AiController.conversation);
 
 // יצירת תרגילים
@@ -25,25 +25,22 @@ router.post("/generate-exercise", AiController.generateExercise);
 // בדיקת חיבור ומתן פידבק
 router.post("/check-essay", AiController.checkEssay);
 
-// קבלת טיפים ללמידה
+// טיפים ללמידה
 router.get("/study-tips", AiController.getStudyTips);
 
-// יצירת בחן אמריקאי אוטומטי
+// יצירת בוחן AI לתרגול
 router.post("/generate-quiz", AiController.generateQuiz);
 
-// יצירת תוכנית למידה כללית
+// יצירת תוכנית למידה
 router.get("/learning-plan", AiController.generateLearningPlan);
 
-// יצירת מפוי מוחי ללמידה 
+// מפת יכולות חכמה
 router.post("/brain-map", AiController.generateBrainMap);
 
-// מאמן אישי לתלמידה
+// מאמן אישי
 router.post("/coach", AiController.generateCoachPlan);
 
-// היסטוריית מאמן אישי
+// היסטוריית המאמן
 router.get("/coach/history", AiController.getCoachHistory);
-
-// שמירת תוצאת בוחן
-router.post("/quiz-result", AiController.saveQuizResult);
 
 export default router;
