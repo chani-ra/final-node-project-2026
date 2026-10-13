@@ -18,6 +18,7 @@ const { default: Course } = await import("../models/course.model.js");
 const { default: CourseProgress } = await import("../models/courseProgress.model.js");
 const { default: Exercise } = await import("../models/exercise.model.js");
 const { default: Quiz } = await import("../models/quiz.model.js");
+const { default: Lesson } = await import("../models/lessons.model.js");
 const { default: TokenService } = await import("../service/token.service.js");
 
 let mongoServer;
@@ -305,4 +306,50 @@ test("deleting course cleans enrollment, progress and quiz reference", async () 
 
   const updatedQuiz = await Quiz.findById(quiz._id);
   assert.equal(updatedQuiz.courseId, null);
+});
+
+test("lesson preview permits owner teacher and admin, denies other users", async () => {
+  const teacher = await User.create({
+    ...registrationData,
+    email: "lesson-owner@test.com",
+    role: "teacher",
+  });
+  const otherTeacher = await User.create({
+    ...registrationData,
+    email: "another-teacher@test.com",
+    role: "teacher",
+  });
+  const student = await User.create({
+    ...registrationData,
+    email: "lesson-student@test.com",
+    role: "student",
+  });
+  const admin = await User.create({
+    ...registrationData,
+    email: "lesson-admin@test.com",
+    role: "admin",
+  });
+  const lesson = await Lesson.create({
+    instructorId: teacher._id,
+    title: "Private lesson preview test",
+    videoUrl: "/uploads/videos/preview-test.mp4",
+    videoFileName: "preview-test.mp4",
+    videoFileSize: 20,
+    isPublic: false,
+  });
+  const endpoint = `/lessons/manage/${lesson._id}`;
+  const asRole = (user) =>
+    request(app)
+      .get(endpoint)
+      .set("Authorization", `Bearer ${TokenService.generateAccessToken(user._id, user.role)}`);
+
+  const ownerResponse = await asRole(teacher);
+  assert.equal(ownerResponse.status, 200);
+  assert.equal(ownerResponse.body.success, true);
+  assert.equal(ownerResponse.body.lesson.instructorId._id, teacher._id.toString());
+  assert.equal(TokenService.verifyToken(ownerResponse.body.previewToken).type, "lesson-preview");
+
+  assert.equal((await asRole(otherTeacher)).status, 403);
+  assert.equal((await asRole(student)).status, 403);
+  assert.equal((await asRole(admin)).status, 200);
 });

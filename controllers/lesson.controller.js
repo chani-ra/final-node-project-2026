@@ -28,8 +28,13 @@ const buildTargetAges = (min, max) => ({
   max: Number(max) || 120,
 });
 
-const canManageLesson = (lesson, user) =>
-  user.role === 'admin' || lesson.instructorId.toString() === user.id.toString();
+const canManageLesson = (lesson, user) => {
+  if (user.role === 'admin') return true;
+  if (user.role !== 'teacher') return false;
+
+  const instructorId = lesson.instructorId?._id ?? lesson.instructorId;
+  return instructorId?.toString() === user.id?.toString();
+};
 
 const streamVideoFile = (req, res, videoPath) => {
   if (!fs.existsSync(videoPath)) {
