@@ -17,6 +17,14 @@ export const TokenService = {
         );
     },
 
+    generateLessonPreviewToken: (userId, lessonId, role = null) => {
+        return jwt.sign(
+            { userId, lessonId, role, type: 'lesson-preview' },
+            process.env.JWT_SECRET,
+            { expiresIn: '5m' }
+        );
+    },
+
     verifyToken: (token, type = 'access') => {
         const secret = type === 'refresh' 
             ? (process.env.REFRESH_SECRET || process.env.JWT_SECRET)

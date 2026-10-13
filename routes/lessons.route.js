@@ -54,6 +54,20 @@ router.get(
   LessonController.getInstructorLessons
 );
 
+// תצוגה מקדימה מאובטחת לשיעור פרטי של מורה/מנהל
+router.get(
+  "/manage/:lessonId",
+  authenticateToken,
+  requireTeacher,
+  LessonController.getManagedLessonById
+);
+
+// הווידאו משתמש בטוקן קצר-חיים כי תגית video לא שולחת Bearer header
+router.get(
+  "/manage/:lessonId/stream",
+  LessonController.streamManagedLesson
+);
+
 /**
  * PUBLIC ROUTES
  */
