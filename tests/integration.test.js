@@ -17,6 +17,8 @@ const { default: User } = await import("../models/users.model.js");
 const { default: Course } = await import("../models/course.model.js");
 const { default: CourseProgress } = await import("../models/courseProgress.model.js");
 const { default: Exercise } = await import("../models/exercise.model.js");
+const { default: ExerciseAttempt } = await import("../models/exerciseAttempt.model.js");
+const { exerciseGrader } = await import("../service/exerciseGrading.service.js");
 const { default: Quiz } = await import("../models/quiz.model.js");
 const { default: Lesson } = await import("../models/lessons.model.js");
 const { default: TokenService } = await import("../service/token.service.js");
@@ -352,4 +354,300 @@ test("lesson preview permits owner teacher and admin, denies other users", async
   assert.equal((await asRole(otherTeacher)).status, 403);
   assert.equal((await asRole(student)).status, 403);
   assert.equal((await asRole(admin)).status, 200);
+});
+
+test("exercise completion requires a course and updates progress safely", async () => {
+  const registration = await registerStudent();
+  const token = registration.body.token;
+  const user = await User.findOne({ email: registrationData.email });
+  const course = await Course.findById(registration.body.personalizedCourse.id);
+
+  const exercise = await Exercise.create({
+    title: "Course exercise",
+    instructions: "1. Write a sentence.",
+    createdBy: user._id,
+    isPublic: false,
+  });
+
+  course.exercises = [exercise._id];
+  await course.save();
+
+  const endpoint = "/exercises/" + exercise._id + "/complete";
+  const auth = (req) => req.set("Authorization", "Bearer " + token);
+
+  const noBody = await auth(request(app).post(endpoint));
+  assert.equal(noBody.status, 400);
+  assert.equal(noBody.body.message, "מזהה קורס חובה");
+
+  const completed = await auth(request(app).post(endpoint))
+    .send({ courseId: course._id.toString() });
+
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.progress.progressPercent, 100);
+  assert.equal(completed.body.progress.completedExercises.length, 1);
+
+  const again = await auth(request(app).post(endpoint))
+    .send({ courseId: course._id.toString() });
+
+  assert.equal(again.status, 200);
+  assert.equal(again.body.progress.completedExercises.length, 1);
+
+  const anotherStudent = await registerStudent({
+    email: "other-student@test.com",
+  });
+
+  const denied = await request(app)
+    .post(endpoint)
+    .set("Authorization", "Bearer " + anotherStudent.body.token)
+    .send({ courseId: course._id.toString() });
+
+  assert.equal(denied.status, 403);
+});
+
+test("legacy exercise missing creator is readable through its enrolled course", async () => {
+  const registration = await registerStudent();
+  const token = registration.body.token;
+  const user = await User.findOne({ email: registrationData.email });
+  const course = await Course.findById(registration.body.personalizedCourse.id);
+
+  const exercise = await Exercise.create({
+    title: "Legacy exercise",
+    createdBy: user._id,
+    isPublic: false,
+  });
+
+  await Course.findByIdAndUpdate(course._id, {
+    $addToSet: { exercises: exercise._id },
+  });
+
+  await Exercise.collection.updateOne(
+    { _id: exercise._id },
+    { $unset: { createdBy: "" } }
+  );
+
+  const response = await request(app)
+    .get("/exercises/" + exercise._id)
+    .set("Authorization", "Bearer " + token);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.exercise._id, exercise._id.toString());
+});
+
+test("exercise submission grades, saves answers and restores latest result", async () => {
+  const registration = await registerStudent();
+  const token = registration.body.token;
+  const student = await User.findOne({
+    email: registrationData.email,
+  });
+  const courseId = registration.body.personalizedCourse.id;
+
+  const exercise = await Exercise.create({
+    title: "Answer test",
+    instructions: "1. She ___ happy.",
+    createdBy: student._id,
+  });
+
+  await Course.findByIdAndUpdate(courseId, {
+    $addToSet: { exercises: exercise._id },
+  });
+
+  const original = exerciseGrader.grade;
+  exerciseGrader.grade = async () => [
+    { correct: true, feedback: "נכון" },
+  ];
+
+  try {
+    const endpoint = "/exercises/" + exercise.id;
+    const auth = (req) =>
+      req.set("Authorization", "Bearer " + token);
+
+    const submitted = await auth(
+      request(app).post(endpoint + "/submit")
+    ).send({ courseId, answers: ["is"] });
+
+    assert.equal(submitted.status, 200);
+    assert.equal(submitted.body.attempt.status, "graded");
+    assert.equal(submitted.body.attempt.score, 100);
+
+    const latest = await auth(
+      request(app)
+        .get(endpoint + "/submission")
+        .query({ courseId })
+    );
+
+    assert.equal(latest.status, 200);
+    assert.equal(latest.body.attempt.answers[0].answer, "is");
+    assert.equal(latest.body.attempt.answers[0].correct, true);
+
+    assert.equal(
+      await ExerciseAttempt.countDocuments({ user: student.id }),
+      1
+    );
+
+    const progress = await CourseProgress.findOne({
+      user: student.id,
+      course: courseId,
+    });
+
+    assert.equal(progress.completedExercises.length, 1);
+  } finally {
+    exerciseGrader.grade = original;
+  }
+});
+
+test("exercise submission protects enrollment and keeps answers if AI fails", async () => {
+  const first = await registerStudent();
+  const second = await registerStudent({
+    email: "second-exercise-student@test.com",
+  });
+
+  const courseId = first.body.personalizedCourse.id;
+  const student = await User.findOne({
+    email: registrationData.email,
+  });
+
+  const exercise = await Exercise.create({
+    title: "Pending test",
+    instructions: "1. Give one example",
+    createdBy: student.id,
+  });
+
+  await Course.findByIdAndUpdate(courseId, {
+    $addToSet: { exercises: exercise.id },
+  });
+
+  const endpoint = "/exercises/" + exercise.id + "/submit";
+
+  const denied = await request(app)
+    .post(endpoint)
+    .set("Authorization", "Bearer " + second.body.token)
+    .send({ courseId, answers: ["example"] });
+
+  assert.equal(denied.status, 403);
+
+  const original = exerciseGrader.grade;
+  exerciseGrader.grade = async () => {
+    throw Error("AI offline");
+  };
+
+  try {
+    const saved = await request(app)
+      .post(endpoint)
+      .set("Authorization", "Bearer " + first.body.token)
+      .send({ courseId, answers: ["example"] });
+
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.attempt.status, "pending");
+    assert.equal(saved.body.attempt.answers[0].answer, "example");
+    assert.equal(saved.body.attempt.score, null);
+  } finally {
+    exerciseGrader.grade = original;
+  }
+});
+
+
+test("teacher AI exercise questions reach the student without answers", async () => {
+  await registerStudent();
+
+  const teacher = await User.findOne({
+    email: registrationData.email,
+  });
+
+  teacher.role = "teacher";
+  await teacher.save();
+
+  const teacherToken = TokenService.generateAccessToken(
+    teacher._id,
+    "teacher"
+  );
+
+  const questions = [
+    "What is your favorite hobby?",
+    "Describe your best friend.",
+  ];
+
+  const created = await request(app)
+    .post("/exercises/create")
+    .set("Authorization", "Bearer " + teacherToken)
+    .send({
+      title: "Two Open Questions",
+      instructions: "Answer the two questions in English.",
+      isPublic: true,
+      createdByAI: true,
+      questions,
+      answerKey: [
+        {
+          answer: "I like reading.",
+          mode: "flexible",
+        },
+        {
+          answer: "My friend is kind.",
+          mode: "flexible",
+        },
+      ],
+    });
+
+  assert.equal(
+    created.status,
+    201,
+    JSON.stringify(created.body)
+  );
+
+  assert.deepEqual(
+    created.body.exercise.questions,
+    questions
+  );
+
+  const studentRegistration = await registerStudent({
+    email: "question-student@test.com",
+  });
+
+  const studentCourse = await Course.findById(
+    studentRegistration.body.personalizedCourse.id
+  );
+
+  studentCourse.exercises = [
+    created.body.exercise._id,
+  ];
+
+  await studentCourse.save();
+
+  const loaded = await request(app)
+    .get("/exercises/" + created.body.exercise._id)
+    .set(
+      "Authorization",
+      "Bearer " + studentRegistration.body.token
+    );
+
+  assert.equal(
+    loaded.status,
+    200,
+    JSON.stringify(loaded.body)
+  );
+
+  assert.deepEqual(
+    loaded.body.exercise.questions,
+    questions
+  );
+
+  assert.equal(
+    "answerKey" in loaded.body.exercise,
+    false
+  );
+
+  assert.equal(
+    "correctAnswer" in loaded.body.exercise,
+    false
+  );
+
+  const refused = await request(app)
+    .post("/exercises/create")
+    .set("Authorization", "Bearer " + teacherToken)
+    .send({
+      title: "Broken AI Exercise",
+      createdByAI: true,
+      instructions: "Intro only",
+    });
+
+  assert.equal(refused.status, 400);
 });

@@ -1,5 +1,7 @@
 import { Router } from "express";
 import ExerciseController from "../controllers/exercise.controller.js";
+import { exerciseSubmissionController } from "../controllers/exerciseSubmission.controller.js";
+import { aiLimiter } from "../middlewares/rateLimit.middleware.js";
 import {
   authenticateToken,
   requireTeacher,
@@ -44,6 +46,9 @@ router.delete(
   requireTeacher,
   ExerciseController.deleteExercise
 );
+
+router.get("/:exerciseId/submission", authenticateToken, exerciseSubmissionController.latest);
+router.post("/:exerciseId/submit", authenticateToken, aiLimiter, exerciseSubmissionController.submit);
 
 // סימון תרגיל כהושלם
 router.post(

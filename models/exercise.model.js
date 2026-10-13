@@ -72,6 +72,8 @@ const exerciseSchema = new Schema(
       index: true,
     },
 
+    questions: { type: [String], default: [] },
+
     materials: {
       type: [String],
       default: [],

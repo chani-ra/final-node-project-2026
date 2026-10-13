@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import User from "../models/users.model.js";
+import { makeExerciseSpec, exercisePrompt } from "../service/exerciseGenerationSpec.service.js";
 
 import { generateCoachAgentPlan } from "../agents/coach.agent.js";
 console.log("AI CONTROLLER NEW VERSION LOADED");
@@ -423,70 +424,77 @@ Important rules:
   // יצירת תרגילים
   generateExercise: async (req, res, next) => {
     try {
-      const { topic, level, exerciseType, prompt } = req.body;
+      const spec = makeExerciseSpec(req.body);
 
-      const finalTopic = topic || prompt || "English practice";
-      const finalLevel = level || "intermediate";
-      const finalType = exerciseType || "vocabulary";
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: exercisePrompt(spec),
+        config: { responseMimeType: "application/json" },
+      });
 
-      const aiPrompt = `
-You are an English teacher for Hebrew-speaking students.
-
-Create a ${finalType} exercise about "${finalTopic}" for ${finalLevel} level students.
-
-Return strictly valid JSON only. Do not use markdown.
-
-Return exactly this structure:
-{
-  "title": "Short attractive English title",
-  "description": "One short sentence explaining the goal of the exercise",
-  "instructions": "הוראות קצרות בעברית לתלמידה",
-  "questions": [
-    {
-      "number": 1,
-      "sentence": "English exercise sentence with a blank ___ if needed",
-      "options": ["option 1", "option 2", "option 3", "option 4"],
-      "correctAnswer": "the correct answer",
-      "hint": "Short helpful hint in Hebrew"
-    }
-  ]
-}
-
-Rules:
-1. Create exactly 5 questions.
-2. Number the questions from 1 to 5.
-3. Keep the English suitable for ${finalLevel} level.
-4. Make the exercise clear, friendly and classroom-ready.
-5. If the exercise type does not need options, return an empty options array.
-6. The explanation and hints should be in Hebrew.
-`;
-
-      let response;
+      let data;
 
       try {
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: aiPrompt,
-          config: { responseMimeType: "application/json" },
+        data = JSON.parse(response.text || "{}");
+      } catch {
+        return res.status(502).json({
+          message: "ה־AI החזיר JSON לא תקין. נסי שוב.",
         });
-      } catch (aiError) {
-        if (isRateLimitError(aiError)) {
-          return res.status(200).json({
-            success: true,
-            data: getExerciseFallback(),
-          });
-        }
-
-        throw aiError;
       }
 
-      const data = parseAIJson(response.text, getExerciseFallback());
+      const questions = data.questions;
 
-      return res.status(200).json({
+      const invalid =
+        !Array.isArray(questions) ||
+        questions.length !== spec.count ||
+        questions.some((question) =>
+          !question ||
+          typeof question.sentence !== "string" ||
+          !question.sentence.trim() ||
+          typeof question.correctAnswer !== "string" ||
+          !question.correctAnswer.trim() ||
+          (
+            spec.mode === "open" &&
+            (
+              question.sentence.includes("___") ||
+              question.options?.length > 0
+            )
+          )
+        );
+
+      if (invalid) {
+        return res.status(502).json({
+          message: "ה־AI לא החזיר את מספר וסוג השאלות שהתבקשו. נסי שוב.",
+        });
+      }
+
+      data.questions = questions.map((question, index) => ({
+        number: index + 1,
+        sentence: question.sentence.trim(),
+        options: Array.isArray(question.options)
+          ? question.options
+          : [],
+        correctAnswer: question.correctAnswer.trim(),
+        hint: String(question.hint || ""),
+      }));
+
+      return res.json({
         success: true,
-        data,
+        data: { ...data, format: spec.mode },
       });
     } catch (error) {
+      if (isRateLimitError(error)) {
+        return res.status(429).json({
+          message: "Gemini אינו זמין כרגע. התרגיל לא נוצר.",
+        });
+      }
+
+      if (error.status === 400) {
+        return res.status(400).json({
+          message: error.message,
+        });
+      }
+
       next(error);
     }
   },

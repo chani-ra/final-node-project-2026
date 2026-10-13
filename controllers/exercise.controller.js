@@ -1,9 +1,60 @@
 import mongoose from "mongoose";
 import Exercise from "../models/exercise.model.js";
+import ExerciseAnswerKey from "../models/exerciseAnswerKey.model.js";
 import Course from "../models/course.model.js";
 
 import { markExerciseCompleted } from "../service/progress.service.js";
 import { cleanupContentReferences } from "../service/contentCleanup.service.js";
+
+function validateStructured(body) {
+  if (
+    body.questions === undefined &&
+    body.answerKey === undefined
+  ) {
+    return null;
+  }
+
+  if (
+    !Array.isArray(body.questions) ||
+    !Array.isArray(body.answerKey) ||
+    body.questions.length < 1 ||
+    body.questions.length > 20 ||
+    body.questions.length !== body.answerKey.length
+  ) {
+    throw Error("מספר השאלות והתשובות חייב להיות תואם");
+  }
+
+  const questions = body.questions.map((question) => {
+    if (
+      typeof question !== "string" ||
+      !question.trim() ||
+      question.length > 1000
+    ) {
+      throw Error("שאלה לא תקינה");
+    }
+
+    return question.trim();
+  });
+
+  const entries = body.answerKey.map((key) => {
+    if (
+      !key ||
+      typeof key.answer !== "string" ||
+      !key.answer.trim() ||
+      key.answer.length > 600
+    ) {
+      throw Error("תשובה נכונה חסרה");
+    }
+
+    return {
+      answer: key.answer.trim(),
+      explanation: String(key.explanation || "").slice(0, 1000),
+      mode: key.mode === "flexible" ? "flexible" : "exact",
+    };
+  });
+
+  return { questions, entries };
+}
 
 const allowedHobbies = ["art_music", "sports", "movies", "books"];
 const allowedExpectations = [
@@ -47,7 +98,7 @@ const buildTargetAges = (min, max) => {
 
 const canAccessPrivateExercise = async (exercise, user) => {
   if (user.role === "admin") return true;
-  if (exercise.createdBy.toString() === user.id.toString()) return true;
+  if (exercise.createdBy?.toString() === user.id.toString()) return true;
 
   const enrolledCourse = await Course.exists({
     exercises: exercise._id,
@@ -85,8 +136,36 @@ export const ExerciseController = {
         });
       }
 
+      const structured = validateStructured(req.body);
+      // ENGLISHWISE_QUESTION_PERSISTENCE_GUARD
+      const incoming = req.body.questions;
+      const aiExercise =
+        req.body.createdByAI === true ||
+        req.body.createdByAI === "true";
+
+      if (
+        (aiExercise &&
+          (!Array.isArray(incoming) || incoming.length === 0)) ||
+        (incoming !== undefined &&
+          (!Array.isArray(incoming) ||
+            incoming.length > 25 ||
+            incoming.some(
+              (q) => typeof q !== "string" || !q.trim()
+            )))
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "אי אפשר לשמור תרגיל AI בלי שאלות תקינות",
+        });
+      }
+
+      const cleanedQuestions = Array.isArray(incoming)
+        ? incoming.map((q) => q.trim())
+        : [];
+
       const newExercise = new Exercise({
         title: title.trim(),
+        questions: structured?.questions || [],
         description: description?.trim() || "",
         instructions: instructions?.trim() || "",
         type: type || "practice",
@@ -108,7 +187,26 @@ export const ExerciseController = {
         aiPrompt: aiPrompt?.trim() || "",
       });
 
-      await newExercise.save();
+      try {
+        // Persist the real questions.
+        newExercise.questions = cleanedQuestions;
+        await newExercise.save();
+
+        if (structured) {
+          await ExerciseAnswerKey.create({
+            exercise: newExercise._id,
+            entries: structured.entries,
+          });
+        }
+      } catch (error) {
+        await ExerciseAnswerKey.deleteOne({
+          exercise: newExercise._id,
+        });
+        await Exercise.deleteOne({
+          _id: newExercise._id,
+        });
+        throw error;
+      }
 
       return res.status(201).json({
         success: true,
@@ -222,12 +320,16 @@ export const ExerciseController = {
       }
 
       const isOwner =
-        exercise.createdBy.toString() === req.user.id.toString();
+        exercise.createdBy?.toString() === req.user.id.toString();
       const isAdmin = req.user.role === "admin";
 
       await exercise.populate("createdBy", "username");
 
       const safeExercise = exercise.toObject();
+
+      safeExercise.questions = Array.isArray(exercise.questions)
+        ? [...exercise.questions]
+        : [];
 
       if (!isOwner && !isAdmin) {
         delete safeExercise.aiPrompt;
@@ -269,7 +371,7 @@ export const ExerciseController = {
       }
 
       const isOwner =
-        exercise.createdBy.toString() === req.user.id.toString();
+        exercise.createdBy?.toString() === req.user.id.toString();
       const isAdmin = req.user.role === "admin";
 
       if (!isOwner && !isAdmin) {
@@ -381,7 +483,7 @@ export const ExerciseController = {
         });
       }
 
-      const isOwner = exercise.createdBy.toString() === req.user.id.toString();
+      const isOwner = exercise.createdBy?.toString() === req.user.id.toString();
       const isAdmin = req.user.role === "admin";
 
       if (!isOwner && !isAdmin) {
@@ -392,6 +494,7 @@ export const ExerciseController = {
       }
 
       await cleanupContentReferences("exercise", exercise._id);
+      await ExerciseAnswerKey.deleteOne({ exercise: exercise._id });
       await Exercise.findByIdAndDelete(exercise._id);
 
       return res.status(200).json({
@@ -407,7 +510,7 @@ export const ExerciseController = {
   markCompleted: async (req, res, next) => {
     try {
       const { exerciseId } = req.params;
-      const { courseId } = req.body;
+      const { courseId } = req.body || {};
 
       if (!courseId) {
         return res.status(400).json({
