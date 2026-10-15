@@ -58,6 +58,14 @@ const UserService = {
   },
 
   login: async (email, password) => {
+    if (
+      process.env.NODE_ENV === "production" &&
+      ["admin@englishplatform.com", "teacher@englishplatform.com"]
+        .includes(email?.trim().toLowerCase())
+    ) {
+      throw new Error("Invalid credentials");
+    }
+
     const user = await User.findOne({ email });
 
     if (!user) {
