@@ -27,6 +27,7 @@ import profileRoutes from "./routes/profile.route.js";
 import dailyGuideRoutes from "./routes/dailyGuide.route.js";
 import aiRoutes from "./routes/ai.route.js";
 import courseProgressRoutes from "./routes/courseProgress.route.js";
+import learningRoutes from "./routes/learning.route.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,6 +87,7 @@ app.use("/profile", profileRoutes);
 app.use("/ai/daily-guide", dailyGuideRoutes);
 app.use("/ai", aiRoutes);
 app.use("/course-progress", courseProgressRoutes);
+app.use("/learning", learningRoutes);
 
 app.use(notFound);
 app.use(errorHandling);

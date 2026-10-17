@@ -22,6 +22,10 @@ const { exerciseGrader } = await import("../service/exerciseGrading.service.js")
 const { default: Quiz } = await import("../models/quiz.model.js");
 const { default: Lesson } = await import("../models/lessons.model.js");
 const { default: TokenService } = await import("../service/token.service.js");
+const { default: LearningPrompt } = await import("../models/learningPrompt.model.js");
+const { seedLearningCatalog } = await import("../service/learning/catalog.service.js");
+const { default: LearningCategory } = await import("../models/learningCategory.model.js");
+const { generateLearningLesson } = await import("../service/learning/learning.service.js");
 
 let mongoServer;
 
@@ -650,4 +654,156 @@ test("teacher AI exercise questions reach the student without answers", async ()
     });
 
   assert.equal(refused.status, 400);
+});
+
+
+// AI Learning Studio: real API + isolated MongoDB, with no external AI calls.
+test("AI learning catalog is accessible only to authenticated users", async () => {
+  await seedLearningCatalog();
+  await seedLearningCatalog(); // Seeding is safe to repeat.
+  assert.equal(await LearningCategory.countDocuments(), 5);
+
+  const unauthenticated = await request(app).get("/learning/categories");
+  assert.equal(unauthenticated.status, 401);
+
+  const registration = await registerStudent();
+  const authorized = await request(app)
+    .get("/learning/categories")
+    .set("Authorization", `Bearer ${registration.body.token}`);
+  assert.equal(authorized.status, 200);
+  assert.equal(authorized.body.categories.length, 5);
+  assert.ok(authorized.body.categories.every((cat) => cat.subcategories.length > 0));
+
+  const providers = await request(app)
+    .get("/learning/providers")
+    .set("Authorization", `Bearer ${registration.body.token}`);
+  assert.equal(providers.status, 200);
+  assert.equal(providers.body.providers.length, 2);
+  assert.equal(JSON.stringify(providers.body).includes("test-openai-key"), false);
+});
+
+test("AI lesson is saved with category, prompt, and provider; student can reopen it", async () => {
+  await seedLearningCatalog();
+  const registration = await registerStudent();
+  const user = await User.findOne({ email: registrationData.email });
+  const categories = await request(app)
+    .get("/learning/categories")
+    .set("Authorization", `Bearer ${registration.body.token}`);
+  const grammar = categories.body.categories.find((cat) => cat.slug === "grammar");
+  assert.ok(grammar);
+  const pastSimple = grammar.subcategories.find((sub) => sub.slug === "past-simple");
+  assert.ok(pastSimple);
+
+  // Inject an AI response only in the test: no real API keys or network calls.
+  const saved = await generateLearningLesson({
+    userId: user._id,
+    categoryId: grammar._id,
+    subcategoryId: pastSimple._id,
+    prompt: "Teach me the Past Simple",
+    provider: "openai",
+  }, { generate: async ({ provider, instructions, prompt }) => {
+    assert.equal(provider, "openai");
+    assert.match(instructions, /Past Simple/);
+    assert.equal(prompt, "Teach me the Past Simple");
+    return { provider, model: "test-double", response: "# Past Simple\nI walked yesterday." };
+  } });
+
+  assert.equal(await LearningPrompt.countDocuments({ user: user._id }), 1);
+  assert.equal(saved.provider, "openai");
+  assert.equal(saved.model, "test-double");
+  assert.equal(saved.response, "# Past Simple\nI walked yesterday.");
+
+  const history = await request(app)
+    .get("/learning/history?page=1&limit=8")
+    .set("Authorization", `Bearer ${registration.body.token}`);
+  assert.equal(history.status, 200);
+  assert.equal(history.body.total, 1);
+  assert.equal(history.body.items[0].category.slug, "grammar");
+  assert.equal(history.body.items[0].subcategory.slug, "past-simple");
+  assert.equal(history.body.items[0].provider, "openai");
+
+  const detail = await request(app)
+    .get(`/learning/history/${saved._id}`)
+    .set("Authorization", `Bearer ${registration.body.token}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.lesson.response, saved.response);
+});
+
+test("learning history is private to the student; admin can see all", async () => {
+  await seedLearningCatalog();
+  const first = await registerStudent();
+  const second = await registerStudent({ email: "other-student@test.com" });
+  const firstUser = await User.findOne({ email: registrationData.email });
+  const secondUser = await User.findOne({ email: "other-student@test.com" });
+  const admin = await User.create({
+    ...registrationData, username: "Admin Test", email: "admin-test@test.com", role: "admin",
+  });
+  const category = await LearningCategory.findOne({ slug: "grammar" });
+  const { default: LearningSubcategory } = await import("../models/learningSubcategory.model.js");
+  const subcategory = await LearningSubcategory.findOne({ category: category._id });
+  const docs = await LearningPrompt.create([
+    { user: firstUser._id, category: category._id, subcategory: subcategory._id,
+      prompt: "First student question", response: "Answer one", level: "beginner", provider: "gemini", model: "mock" },
+    { user: secondUser._id, category: category._id, subcategory: subcategory._id,
+      prompt: "Second student question", response: "Answer two", level: "beginner", provider: "gemini", model: "mock" },
+  ]);
+
+  const firstHistory = await request(app)
+    .get("/learning/history")
+    .set("Authorization", `Bearer ${first.body.token}`);
+  assert.equal(firstHistory.status, 200);
+  assert.equal(firstHistory.body.total, 1);
+  assert.equal(firstHistory.body.items[0].prompt, "First student question");
+
+  const otherDetail = await request(app)
+    .get(`/learning/history/${docs[1]._id}`)
+    .set("Authorization", `Bearer ${first.body.token}`);
+  assert.equal(otherDetail.status, 404);
+
+  const forbiddenHistory = await request(app)
+    .get(`/learning/history?userId=${secondUser._id}`)
+    .set("Authorization", `Bearer ${first.body.token}`);
+  assert.equal(forbiddenHistory.status, 400);
+
+  const adminUnauthorized = await request(app)
+    .get("/learning/admin/history")
+    .set("Authorization", `Bearer ${second.body.token}`);
+  assert.equal(adminUnauthorized.status, 403);
+
+  const adminToken = TokenService.generateAccessToken(admin._id, "admin");
+  const adminHistory = await request(app)
+    .get("/learning/admin/history?page=1&limit=1")
+    .set("Authorization", `Bearer ${adminToken}`);
+  assert.equal(adminHistory.status, 200);
+  assert.equal(adminHistory.body.total, 2);
+  assert.equal(adminHistory.body.items.length, 1);
+  assert.equal(adminHistory.body.pages, 2);
+
+  const filtered = await request(app)
+    .get(`/learning/admin/history?userId=${secondUser._id}`)
+    .set("Authorization", `Bearer ${adminToken}`);
+  assert.equal(filtered.status, 200);
+  assert.equal(filtered.body.total, 1);
+  assert.equal(filtered.body.items[0].prompt, "Second student question");
+});
+
+test("AI generation rejects mismatched category and subcategory without using AI", async () => {
+  await seedLearningCatalog();
+  const registration = await registerStudent();
+  const categories = await request(app)
+    .get("/learning/categories")
+    .set("Authorization", `Bearer ${registration.body.token}`);
+  const grammar = categories.body.categories.find((c) => c.slug === "grammar");
+  const vocabulary = categories.body.categories.find((c) => c.slug === "vocabulary");
+  const response = await request(app)
+    .post("/learning/generate")
+    .set("Authorization", `Bearer ${registration.body.token}`)
+    .send({
+      categoryId: grammar._id,
+      subcategoryId: vocabulary.subcategories[0]._id,
+      prompt: "Please teach me English vocabulary",
+      provider: "gemini",
+    });
+  assert.equal(response.status, 400);
+  assert.equal(await LearningPrompt.countDocuments(), 0);
 });

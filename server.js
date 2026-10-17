@@ -2,11 +2,13 @@ import "dotenv/config";
 import app from "./app.js";
 import { connectDB } from "./config/db.js";
 import { seedDefaultData } from "./seedDefaultData.js";
+import { seedLearningCatalog } from "./service/learning/catalog.service.js";
 
 const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   await connectDB();
+  await seedLearningCatalog();
 if (process.env.NODE_ENV !== "production") {
   await seedDefaultData();
 }
