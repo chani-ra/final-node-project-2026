@@ -1,4 +1,5 @@
 import ChatConversation from "../models/chatConversation.model.js";
+import { generateConversationReply } from "../service/conversationAI.service.js";
 
 const MAX_MESSAGES_PER_CONVERSATION = 80;
 
@@ -109,7 +110,7 @@ export const ChatConversationController = {
       const { conversationId } = req.params;
       const { sender, text } = req.body;
 
-      if (!["user", "ai"].includes(sender)) {
+      if (sender !== "user") {
         return res.status(400).json({
           success: false,
           message: "סוג שולח לא תקין",
@@ -171,6 +172,50 @@ export const ChatConversationController = {
         success: false,
         message: error.message,
       });
+    }
+  },
+
+  // One server-controlled operation: the client supplies only its own message.
+  // Both the user message and the AI response are stored by the Backend.
+  replyToConversation: async (req, res, next) => {
+    try {
+      const { conversationId } = req.params;
+      const { message, level } = req.body;
+      const cleanMessage = typeof message === "string" ? message.trim() : "";
+      if (!cleanMessage || cleanMessage.length > 4000) {
+        return res.status(400).json({ success: false, message: "הודעה חייבת להכיל 1 עד 4000 תווים" });
+      }
+
+      const filter = { _id: conversationId, user: req.user.id, isArchived: false };
+      const conversation = await ChatConversation.findOne(filter).select("title").lean();
+      if (!conversation) {
+        return res.status(404).json({ success: false, message: "השיחה לא נמצאה" });
+      }
+
+      const reply = await generateConversationReply({ message: cleanMessage, level });
+      const now = new Date();
+      const set = { lastMessageAt: now };
+      if (!conversation.title || conversation.title === "שיחה חדשה עם בולט") {
+        set.title = buildConversationTitle(cleanMessage);
+      }
+      // Atomic append prevents losing messages when multiple requests arrive.
+      const updatedConversation = await ChatConversation.findOneAndUpdate(
+        filter,
+        {
+          $push: { messages: { $each: [
+            { sender: "user", text: cleanMessage, createdAt: now },
+            { sender: "ai", text: reply, createdAt: new Date() },
+          ], $slice: -MAX_MESSAGES_PER_CONVERSATION } },
+          $set: set,
+        },
+        { new: true, runValidators: true }
+      );
+      if (!updatedConversation) {
+        return res.status(404).json({ success: false, message: "השיחה לא נמצאה" });
+      }
+      return res.status(200).json({ success: true, reply, conversation: updatedConversation });
+    } catch (error) {
+      next(error);
     }
   },
 

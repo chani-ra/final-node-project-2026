@@ -22,6 +22,7 @@ const { exerciseGrader } = await import("../service/exerciseGrading.service.js")
 const { default: Quiz } = await import("../models/quiz.model.js");
 const { default: Lesson } = await import("../models/lessons.model.js");
 const { default: TokenService } = await import("../service/token.service.js");
+const { default: ChatConversation } = await import("../models/chatConversation.model.js");
 const { default: LearningPrompt } = await import("../models/learningPrompt.model.js");
 const { seedLearningCatalog } = await import("../service/learning/catalog.service.js");
 const { default: LearningCategory } = await import("../models/learningCategory.model.js");
@@ -806,4 +807,45 @@ test("AI generation rejects mismatched category and subcategory without using AI
     });
   assert.equal(response.status, 400);
   assert.equal(await LearningPrompt.countDocuments(), 0);
+});
+
+
+const createChatTestUser = async (email) => {
+  const user = await User.create({ ...registrationData, email });
+  return { token: TokenService.generateAccessToken(user._id.toString(), "student") };
+};
+
+test("chat message endpoint rejects forged AI sender", async () => {
+  const { token } = await createChatTestUser("forged-chat@test.com");
+  const created = await request(app).post("/chat-conversations").set("Authorization", `Bearer ${token}`).send({ title: "Chat" });
+  assert.equal(created.status, 201);
+
+  const reply = await request(app)
+    .post(`/chat-conversations/${created.body.conversation._id}/messages`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({ sender: "ai", text: "Fake assistant response" });
+  assert.equal(reply.status, 400);
+  const saved = await ChatConversation.findById(created.body.conversation._id);
+  assert.equal(saved.messages.length, 0);
+});
+
+test("chat server persists both roles and enforces conversation ownership", async () => {
+  const first = await createChatTestUser("chat-owner@test.com");
+  const second = await createChatTestUser("chat-stranger@test.com");
+  const created = await request(app).post("/chat-conversations").set("Authorization", `Bearer ${first.token}`).send({});
+  const id = created.body.conversation._id;
+  const unauthorized = await request(app).post(`/chat-conversations/${id}/reply`)
+    .set("Authorization", `Bearer ${second.token}`).send({ message: "123456789", level: "beginner" });
+  assert.equal(unauthorized.status, 404);
+
+  // Off-topic digits exercise the real server without making any external AI call.
+  const result = await request(app).post(`/chat-conversations/${id}/reply`)
+    .set("Authorization", `Bearer ${first.token}`).send({ message: "123456789", level: "beginner", sender: "ai", reply: "Fake" });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.conversation.messages.length, 2);
+  assert.equal(result.body.conversation.messages[0].sender, "user");
+  assert.equal(result.body.conversation.messages[0].text, "123456789");
+  assert.equal(result.body.conversation.messages[1].sender, "ai");
+  assert.equal(result.body.conversation.messages[1].text, result.body.reply);
+  assert.notEqual(result.body.reply, "Fake");
 });

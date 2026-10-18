@@ -1,4 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
+import { generateConversationReply } from "../service/conversationAI.service.js";
+import { parseEssayAssessment } from "../service/essayAssessment.service.js";
 import User from "../models/users.model.js";
 import { makeExerciseSpec, exercisePrompt } from "../service/exerciseGenerationSpec.service.js";
 
@@ -28,30 +30,6 @@ const isRateLimitError = (error) => {
   );
 };
 
-// בדיקה קצרה אם ההודעה קשורה ללימוד אנגלית
-const isEnglishLearningRequest = (message = "") => {
-  const text = message.toLowerCase();
-
-  const hasEnglishText = /[a-zA-Z]/.test(text);
-
-  const learningPattern =
-    /(אנגלית|דקדוק|תרגום|תרגם|מילה|מילים|משפט|ביטוי|שיחה|דיבור|הגייה|כתיבה|קריאה|שמיעה|ללמוד|לתרגל|תסביר|הסבר|תקן|עבר|הווה|עתיד|זמן|זמנים|פועל|english|grammar|vocabulary|sentence|word|translate|conversation|practice|correct|meaning|pronunciation|tense|verb|past|present|future|perfect|simple)/i;
-
-  return hasEnglishText || learningPattern.test(text);
-};
-
-
-// תשובת גיבוי לצ׳אט כש-Gemini לא זמין
-const getConversationFallbackReply = () => {
-  return (
-    "כרגע יש עומס או מגבלת שימוש זמנית בחיבור ל־AI.\n" +
-    "בינתיים אפשר לתרגל כך:\n" +
-    "1. כתבי משפט אחד באנגלית.\n" +
-    "2. נסי לתרגם אותו לעברית.\n" +
-    "3. בעוד כמה דקות נסי לשלוח לי אותו שוב ואעזור לך לתקן."
-  );
-};
-
 // מבנה גיבוי קבוע לתרגיל AI
 const getExerciseFallback = () => {
   return {
@@ -67,25 +45,6 @@ const getExerciseFallback = () => {
         hint: "בחרי מילה שמתאימה לתרגול אוצר מילים.",
       },
     ],
-  };
-};
-
-// מבנה גיבוי קבוע לבדיקת כתיבה
-const getEssayFallback = (reason = "unavailable") => {
-  const messages = {
-    rate_limit:
-      "כרגע ה־AI עמוס או שהגענו למגבלת שימוש זמנית. נסי שוב בעוד כמה דקות. בינתיים כדאי לבדוק שהמשפטים מתחילים באות גדולה, שיש נקודה בסוף משפט, ושהפועל מתאים לנושא.",
-    ai_unavailable:
-      "כרגע בדיקת הכתיבה אינה זמינה. נסי שוב בעוד רגע. בינתיים כדאי לקרוא את הפסקה בקול ולבדוק אם כל משפט ברור ושלם.",
-    server_error:
-      "אירעה תקלה זמנית בבדיקת הכתיבה, ולכן לא ניתן ציון מדויק כרגע. הכיוון הכללי טוב, ונסי לשלוח שוב בעוד רגע כדי לקבל בדיקה מפורטת.",
-    parse_error: "לא הצלחנו לנתח את תשובת ה־AI כרגע.",
-  };
-
-  return {
-    score: 85,
-    generalFeedback: messages[reason] || messages.ai_unavailable,
-    grammarCorrections: [],
   };
 };
 
@@ -331,92 +290,16 @@ Return this exact structure:
     }
   },
 
-  // תרגול שיחה באנגלית בלבד עם סינון נושא
+  // Existing stateless conversation API. Persistent chat uses the server-owned /chat-conversations/:id/reply API.
   conversation: async (req, res, next) => {
     try {
       const { message, level } = req.body;
-
-      if (!message || !message.trim()) {
-        return res.status(400).json({
-          success: false,
-          message: "Message is required",
-        });
+      if (typeof message !== "string" || !message.trim()) {
+        return res.status(400).json({ success: false, message: "Message is required" });
       }
-
-      const cleanMessage = message.trim();
-
-      if (!isEnglishLearningRequest(cleanMessage)) {
-        return res.status(200).json({
-          success: true,
-          reply:
-            "אני כאן כדי לעזור רק בלימוד אנגלית 😊\nאפשר לבקש ממני: לתרגל שיחה, לתקן משפט, להסביר מילה, ללמוד דקדוק, להבין זמנים באנגלית או לבנות משפטים.",
-        });
-      }
-
-      const safeLevel = level || "beginner";
-
-      const prompt = `
-You are "Bolt AI", an English learning assistant for Hebrew-speaking students.
-
-Your role:
-- Help the student learn English.
-- Explain English grammar clearly in Hebrew.
-- Help with English vocabulary, expressions, translation, sentence building and conversation practice.
-- Correct English sentences gently.
-- If the student asks about English grammar topics such as Past Perfect, Present Simple, Past Simple, Present Perfect, Future, tenses, verbs, nouns, adjectives — explain them clearly.
-- If the student asks for a deeper explanation, give a deeper explanation, but keep it organized and practical.
-- Ask one short practice question at the end when useful.
-
-Student level: ${safeLevel}
-
-Student message:
-${JSON.stringify(cleanMessage)}
-
-Important rules:
-1. Stay focused only on English learning.
-2. If the student asks about something unrelated to English learning, politely redirect back to English practice.
-3. Hebrew explanations are allowed and recommended.
-4. English examples are important.
-5. Keep the answer friendly, clear, and useful.
-6. Do not answer general knowledge questions unless they are directly needed for learning English.
-7. If the student asks about "עבר מושלם", explain Past Perfect.
-8. If the student asks about "עבר פשוט", explain Past Simple.
-9. If the student asks about "הווה פשוט", explain Present Simple.
-10. If the student asks about "הווה מושלם", explain Present Perfect.
-`;
-
-      let response;
-
-      try {
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-        });
-      } catch (aiError) {
-        console.error("❌ Gemini conversation error:", aiError.message || aiError);
-
-        if (isRateLimitError(aiError)) {
-          return res.status(200).json({
-            success: true,
-            reply: getConversationFallbackReply(),
-          });
-        }
-
-        return res.status(200).json({
-          success: true,
-          reply:
-            "כרגע יש תקלה זמנית בחיבור ל־AI. נסי שוב בעוד רגע. בינתיים אפשר לכתוב לי משפט באנגלית לתרגול.",
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        reply:
-          response.text?.trim() ||
-          "אני כאן כדי לעזור לך לתרגל אנגלית. כתבי לי משפט או נושא באנגלית ונמשיך משם.",
-      });
+      const reply = await generateConversationReply({ message, level });
+      return res.status(200).json({ success: true, reply });
     } catch (error) {
-      console.error("❌ Conversation controller error:", error.message || error);
       next(error);
     }
   },
@@ -565,7 +448,6 @@ Correction rules:
 `;
 
       let response;
-
       try {
         response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
@@ -573,38 +455,24 @@ Correction rules:
           config: { responseMimeType: "application/json" },
         });
       } catch (aiError) {
-        console.error("❌ Gemini checkEssay error:", aiError.message || aiError);
-
-        if (isRateLimitError(aiError)) {
-          return res.status(200).json({
-            success: true,
-            fallback: true,
-            reason: "rate_limit",
-            data: getEssayFallback("rate_limit"),
-          });
-        }
-
-        return res.status(200).json({
-          success: true,
-          fallback: true,
-          reason: "ai_unavailable",
-          data: getEssayFallback("ai_unavailable"),
+        console.error("Gemini checkEssay error:", aiError.message || aiError);
+        return res.status(isRateLimitError(aiError) ? 429 : 503).json({
+          success: false,
+          message: isRateLimitError(aiError)
+            ? "בדיקת הכתיבה עמוסה כרגע. נסי שוב בעוד כמה דקות."
+            : "בדיקת הכתיבה אינה זמינה כרגע. נסי שוב מאוחר יותר.",
         });
       }
 
-      const data = parseAIJson(response.text, getEssayFallback("parse_error"));
+      const data = parseEssayAssessment(response.text);
+      if (!data) {
+        return res.status(502).json({
+          success: false,
+          message: "לא התקבלה בדיקת כתיבה תקינה מה־AI. נסי שוב.",
+        });
+      }
 
-      const safeScore =
-        typeof data.score === "number" && data.score >= 0 && data.score <= 100
-          ? data.score
-          : Number(data.score) >= 0 && Number(data.score) <= 100
-            ? Number(data.score)
-            : 85;
-
-      const grammarCorrections = Array.isArray(data.grammarCorrections)
-        ? data.grammarCorrections
-        : [];
-
+      const grammarCorrections = data.grammarCorrections;
       const grammarHistoryEntries = grammarCorrections
         .filter(
           (item) =>
@@ -640,25 +508,9 @@ Correction rules:
       }
 
 
-      return res.status(200).json({
-        success: true,
-        data: {
-          score: safeScore,
-          generalFeedback:
-            data.generalFeedback ||
-            "בדקתי את הכתיבה שלך. יש כמה נקודות לשיפור, אבל הכיוון טוב.",
-          grammarCorrections,
-        },
-      });
+      return res.status(200).json({ success: true, data });
     } catch (error) {
-      console.error("❌ checkEssay controller error:", error.message || error);
-
-      return res.status(200).json({
-        success: true,
-        fallback: true,
-        reason: "server_error",
-        data: getEssayFallback("server_error"),
-      });
+      next(error);
     }
   },
 

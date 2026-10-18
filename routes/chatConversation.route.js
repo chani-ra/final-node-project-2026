@@ -1,6 +1,7 @@
 import { Router } from "express";
 import ChatConversationController from "../controllers/chatConversation.controller.js";
 import { authenticateToken } from "../middlewares/auth.middleware.js";
+import { aiLimiter } from "../middlewares/rateLimit.middleware.js";
 
 const router = Router();
 
@@ -20,6 +21,9 @@ router.post(
   "/:conversationId/messages",
   ChatConversationController.addMessageToConversation
 );
+
+// Server-generated replies, limited as AI requests.
+router.post("/:conversationId/reply", aiLimiter, ChatConversationController.replyToConversation);
 
 // שינוי שם שיחה
 router.patch("/:conversationId", ChatConversationController.renameConversation);
