@@ -10,7 +10,10 @@ const isEnglishLearningRequest = (message) =>
   /[a-zA-Z]/.test(message) ||
   /(אנגלית|דקדוק|תרגום|תרגם|מילה|מילים|משפט|ביטוי|שיחה|דיבור|הגייה|כתיבה|קריאה|שמיעה|ללמוד|לתרגל|תסביר|הסבר|תקן|עבר|הווה|עתיד|זמן|זמנים|פועל|english|grammar|vocabulary|sentence|word|translate|conversation|practice|correct|meaning|pronunciation|tense|verb|past|present|future|perfect|simple)/i.test(message);
 
-export async function generateConversationReply({ message, level = "beginner" }) {
+export async function generateConversationReply(
+  { message, level = "beginner" },
+  generateContent = (options) => ai.models.generateContent(options)
+) {
   const cleanMessage = typeof message === "string" ? message.trim() : "";
   if (!cleanMessage) throw new TypeError("Message is required");
   if (!isEnglishLearningRequest(cleanMessage)) {
@@ -48,14 +51,24 @@ Important rules:
 10. If the student asks about "הווה מושלם", explain Present Perfect.
 `;
 
+  let response;
   try {
-    const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt });
-    return response.text?.trim() || "אני כאן כדי לעזור לך לתרגל אנגלית. כתבי לי משפט או נושא באנגלית ונמשיך משם.";
+    response = await generateContent({ model: "gemini-2.5-flash", contents: prompt });
   } catch (error) {
     console.error("Gemini conversation error:", error.message || error);
-    if (isRateLimitError(error)) {
-      return "כרגע יש עומס או מגבלת שימוש זמנית בחיבור ל־AI.\nבינתיים אפשר לתרגל כך:\n1. כתבי משפט אחד באנגלית.\n2. נסי לתרגם אותו לעברית.\n3. בעוד כמה דקות נסי לשלוח לי אותו שוב ואעזור לך לתקן.";
-    }
-    return "כרגע יש תקלה זמנית בחיבור ל־AI. נסי שוב בעוד רגע. בינתיים אפשר לכתוב לי משפט באנגלית לתרגול.";
+    const limited = isRateLimitError(error);
+    const unavailable = new Error(limited
+      ? "יש עומס זמני בבדיקת ההודעות. נסי שוב בעוד כמה דקות."
+      : "לא ניתן לקבל תשובה מה־AI כרגע. נסי שוב בעוד רגע.");
+    unavailable.statusCode = limited ? 429 : 503;
+    throw unavailable;
   }
+
+  const reply = typeof response?.text === "string" ? response.text.trim() : "";
+  if (!reply) {
+    const unavailable = new Error("ה־AI לא החזיר תשובה תקינה. נסי שוב.");
+    unavailable.statusCode = 502;
+    throw unavailable;
+  }
+  return reply;
 }
