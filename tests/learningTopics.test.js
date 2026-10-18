@@ -19,3 +19,21 @@ test("subcategory slugs are unique within each category", () => {
     assert.ok(category.subcategories.every((item) => item.name.length > 2));
   }
 });
+
+import { lessonInstructions } from "../service/learning/providers/lessonInstructions.js";
+
+test("short stories are available independently under reading and listening", () => {
+  const reading = LEARNING_TOPICS.find((topic) => topic.slug === "reading");
+  const listening = LEARNING_TOPICS.find((topic) => topic.slug === "listening");
+  assert.ok(reading?.subcategories.some((topic) => topic.slug === "short-stories"));
+  assert.ok(listening?.subcategories.some((topic) => topic.slug === "short-stories"));
+  assert.equal(new Set(listening.subcategories.map((topic) => topic.slug)).size, listening.subcategories.length);
+});
+
+test("listening stories have focused instructions without changing grammar lessons", () => {
+  const listening = lessonInstructions({ category: "Listening", subcategory: "Short Stories", level: "beginner" });
+  const grammar = lessonInstructions({ category: "Grammar", subcategory: "Past Simple", level: "beginner" });
+  assert.match(listening, /Listening Script/);
+  assert.match(listening, /comprehension questions/);
+  assert.doesNotMatch(grammar, /Listening Script/);
+});

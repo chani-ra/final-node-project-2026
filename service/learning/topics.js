@@ -38,6 +38,7 @@ export const LEARNING_TOPICS = Object.freeze([
     subcategories: [
       { slug: "listening-basics", name: "Listening Basics" },
       { slug: "listening-practice", name: "Everyday Listening" },
+      { slug: "short-stories", name: "Short Stories" },
     ],
   },
 ]);

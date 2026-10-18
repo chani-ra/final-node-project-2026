@@ -40,13 +40,16 @@ export async function generateLearningLesson(
   }
 
   if (!result.response) throw httpError(503, "לא התקבלה תשובה מהמודל. נסי שוב");
+  if (result.response.length > 20000) {
+    throw httpError(503, "השיעור שהתקבל ארוך מדי לשמירה. נסי בקשה ממוקדת יותר");
+  }
 
   return LearningPrompt.create({
     user: userId,
     category: categoryId,
     subcategory: subcategoryId,
     prompt,
-    response: result.response.slice(0, 20000),
+    response: result.response,
     level,
     provider: result.provider,
     model: result.model,
