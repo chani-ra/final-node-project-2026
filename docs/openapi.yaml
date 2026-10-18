@@ -1,0 +1,408 @@
+openapi: 3.0.3
+info:
+  title: EnglishWise AI Learning Studio API
+  version: 1.0.0
+  description: |
+    Documented contract for the evaluated AI lesson workflow.
+    Other EnglishWise endpoints (courses, quizzes, media, chat, etc.) are outside this focused specification.
+    Obtain a JWT access token from the existing `POST /users/login` endpoint.
+servers:
+  - url: https://englishwise-api.onrender.com
+    description: Production on Render
+  - url: http://localhost:3000
+    description: Local Express backend
+tags:
+  - name: Learning Catalog
+  - name: Learning Lessons
+  - name: Administration
+security:
+  - bearerAuth: []
+paths:
+  /learning/categories:
+    get:
+      tags: [Learning Catalog]
+      summary: List categories with their subcategories
+      description: Requires an authenticated student, teacher or admin.
+      responses:
+        '200':
+          description: Catalog returned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, categories]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  categories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /learning/providers:
+    get:
+      tags: [Learning Catalog]
+      summary: List AI providers configured on the server
+      description: Provider availability checks only that an API key exists; it does not verify the credential or billing.
+      responses:
+        '200':
+          description: Supported providers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, providers]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  providers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Provider'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /learning/generate:
+    post:
+      tags: [Learning Lessons]
+      summary: Generate an AI lesson and save it to the signed-in user's history
+      description: |
+        The selected subcategory must belong to the selected category.
+        The provider is either gemini or openai (default gemini).
+        OpenAI daily quota slots are reserved before the paid provider call;
+        a failed provider call can still consume one reservation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateRequest'
+            example:
+              categoryId: 507f1f77bcf86cd799439011
+              subcategoryId: 507f191e810c19729de860ea
+              prompt: Teach me Past Simple with three examples and an exercise.
+              provider: openai
+      responses:
+        '201':
+          description: Completed lesson persisted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, lesson]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  lesson:
+                    $ref: '#/components/schemas/Lesson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /learning/history:
+    get:
+      tags: [Learning Lessons]
+      summary: Paginated history for the authenticated account only
+      description: Sending a userId is not allowed; users cannot request another user's history.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/CategoryFilter'
+      responses:
+        '200':
+          $ref: '#/components/responses/History'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /learning/history/{id}:
+    get:
+      tags: [Learning Lessons]
+      summary: Read a single lesson owned by the authenticated user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ObjectId'
+      responses:
+        '200':
+          description: Lesson found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, lesson]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  lesson:
+                    $ref: '#/components/schemas/Lesson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /learning/admin/history:
+    get:
+      tags: [Administration]
+      summary: Paginated learning history across all users (admin only)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/CategoryFilter'
+        - name: userId
+          in: query
+          required: false
+          description: Optional user filter for administrators only.
+          schema:
+            $ref: '#/components/schemas/ObjectId'
+      responses:
+        '200':
+          $ref: '#/components/responses/History'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ObjectId:
+      type: string
+      pattern: '^[a-fA-F0-9]{24}$'
+      example: 507f1f77bcf86cd799439011
+    Subcategory:
+      type: object
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        name:
+          type: string
+          example: Past Simple
+        slug:
+          type: string
+          example: past-simple
+        category:
+          $ref: '#/components/schemas/ObjectId'
+    Category:
+      type: object
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        name:
+          type: string
+          example: Grammar
+        slug:
+          type: string
+          example: grammar
+        subcategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subcategory'
+    Provider:
+      type: object
+      required: [id, label, available]
+      properties:
+        id:
+          type: string
+          enum: [gemini, openai]
+        label:
+          type: string
+          example: OpenAI GPT
+        available:
+          type: boolean
+          description: True when the corresponding backend environment key is present.
+    GenerateRequest:
+      type: object
+      additionalProperties: false
+      required: [categoryId, subcategoryId, prompt]
+      properties:
+        categoryId:
+          $ref: '#/components/schemas/ObjectId'
+        subcategoryId:
+          $ref: '#/components/schemas/ObjectId'
+        prompt:
+          type: string
+          minLength: 5
+          maxLength: 800
+        provider:
+          type: string
+          enum: [gemini, openai]
+          default: gemini
+    Lesson:
+      type: object
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        user:
+          description: ObjectId in create response, optionally populated in history.
+          oneOf:
+            - $ref: '#/components/schemas/ObjectId'
+            - type: object
+              properties:
+                _id:
+                  $ref: '#/components/schemas/ObjectId'
+                username:
+                  type: string
+                email:
+                  type: string
+                  format: email
+        category:
+          description: ObjectId or populated category in history/detail responses.
+          oneOf:
+            - $ref: '#/components/schemas/ObjectId'
+            - type: object
+              properties:
+                _id:
+                  $ref: '#/components/schemas/ObjectId'
+                name:
+                  type: string
+                slug:
+                  type: string
+        subcategory:
+          description: ObjectId or populated subcategory in history/detail responses.
+          oneOf:
+            - $ref: '#/components/schemas/ObjectId'
+            - type: object
+              properties:
+                _id:
+                  $ref: '#/components/schemas/ObjectId'
+                name:
+                  type: string
+                slug:
+                  type: string
+        prompt:
+          type: string
+        response:
+          type: string
+          description: Completed text lesson generated by the provider.
+        level:
+          type: string
+          enum: [beginner, intermediate, advanced]
+        provider:
+          type: string
+          enum: [gemini, openai]
+        model:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    HistoryPage:
+      type: object
+      required: [success, items, total, page, limit, pages]
+      properties:
+        success:
+          type: boolean
+          example: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Lesson'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+        pages:
+          type: integer
+          minimum: 0
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 10
+    CategoryFilter:
+      name: categoryId
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/ObjectId'
+  responses:
+    History:
+      description: Paginated result
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HistoryPage'
+    BadRequest:
+      description: Validation or invalid category/subcategory pairing
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or invalid access token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Authenticated user lacks permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Lesson not found or not owned by caller
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: OpenAI lesson quota or API rate limit reached
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: Provider unavailable, failed or produced incomplete output
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
