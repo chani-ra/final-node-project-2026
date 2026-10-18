@@ -849,3 +849,44 @@ test("chat server persists both roles and enforces conversation ownership", asyn
   assert.equal(result.body.conversation.messages[1].text, result.body.reply);
   assert.notEqual(result.body.reply, "Fake");
 });
+
+test("teacher students endpoint uses only owned course enrollments and real progress", async () => {
+  const teacher = await User.create({ ...registrationData, email: "teacher-list@test.com", role: "teacher" });
+  const otherTeacher = await User.create({ ...registrationData, email: "other-teacher@test.com", role: "teacher" });
+  const student = await User.create({ ...registrationData, email: "enrolled-student@test.com" });
+  const secondStudent = await User.create({ ...registrationData, email: "other-student@test.com" });
+
+  const ownedCourse = await Course.create({
+    title: "My English Course", instructorId: teacher._id, category: "grammar",
+    enrolledStudents: [student._id],
+  });
+  await Course.create({
+    title: "Somebody Else's Course", instructorId: otherTeacher._id, category: "grammar",
+    enrolledStudents: [secondStudent._id],
+  });
+  await CourseProgress.create({ user: student._id, course: ownedCourse._id, progressPercent: 64 });
+
+  const teacherToken = TokenService.generateAccessToken(teacher._id.toString(), "teacher");
+  const studentToken = TokenService.generateAccessToken(student._id.toString(), "student");
+  const response = await request(app).get("/courses/teacher/students")
+    .set("Authorization", `Bearer ${teacherToken}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.count, 1);
+  assert.equal(response.body.students[0].name, student.username);
+  assert.equal(response.body.students[0].progress, 64);
+  assert.equal(response.body.students[0].course, "My English Course");
+  assert.equal("email" in response.body.students[0], false);
+  assert.equal(response.body.students.some((row) => row.studentId === secondStudent._id.toString()), false);
+
+  const forbidden = await request(app).get("/courses/teacher/students")
+    .set("Authorization", `Bearer ${studentToken}`);
+  assert.equal(forbidden.status, 403);
+
+  const otherTeacherToken = TokenService.generateAccessToken(otherTeacher._id.toString(), "teacher");
+  const otherResult = await request(app).get("/courses/teacher/students")
+    .set("Authorization", `Bearer ${otherTeacherToken}`);
+  assert.equal(otherResult.status, 200);
+  assert.equal(otherResult.body.students.length, 1);
+  assert.equal(otherResult.body.students[0].studentId, secondStudent._id.toString());
+});

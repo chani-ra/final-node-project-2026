@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import CourseController from "../controllers/courses.controller.js";
+import { getTeacherStudents } from "../controllers/teacherStudents.controller.js";
 import {
   authenticateToken,
   requireTeacher,
@@ -47,6 +48,8 @@ router.post(
 );
 
 // Teacher course management
+router.get("/teacher/students", authenticateToken, requireTeacher, getTeacherStudents);
+
 router.post(
   "/create",
   authenticateToken,
