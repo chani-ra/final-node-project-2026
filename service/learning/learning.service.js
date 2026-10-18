@@ -4,6 +4,7 @@ import LearningSubcategory from "../../models/learningSubcategory.model.js";
 import LearningPrompt from "../../models/learningPrompt.model.js";
 import { generateWithProvider } from "./providers/index.js";
 import { lessonInstructions } from "./providers/lessonInstructions.js";
+import { reserveOpenAILesson } from "./openaiQuota.service.js";
 
 function httpError(status, message) {
   const error = new Error(message);
@@ -26,6 +27,7 @@ export async function generateLearningLesson(
   }
   if (!user) throw httpError(401, "המשתמש לא נמצא");
   const level = user.englishLevel || "beginner";
+  if (provider === "openai") await reserveOpenAILesson({ userId });
   let result;
   try {
     result = await generate({
