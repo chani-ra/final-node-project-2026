@@ -1012,3 +1012,133 @@ test("personalized course rejects invalid level before calling the AI", async ()
   assert.equal(response.body.success, false);
   assert.equal(response.body.message, "רמת אנגלית לא תקינה");
 });
+
+// Batch 2: lesson controller/service separation regression coverage.
+// User fixtures are created directly to avoid exhausting the registration rate limiter.
+const createLessonTestUser = async (role, email) => {
+  const user = await User.create({ ...registrationData, email, role });
+  return {
+    user,
+    token: TokenService.generateAccessToken(user._id.toString(), role),
+  };
+};
+
+const createLessonFixture = (teacherId, overrides = {}) => Lesson.create({
+  instructorId: teacherId,
+  title: 'Lesson service regression',
+  videoUrl: '/uploads/videos/test-lesson-regression.mp4',
+  videoFileName: 'test-lesson-regression.mp4',
+  videoFileSize: 20,
+  isPublic: true,
+  ...overrides,
+});
+
+test('lesson catalog returns only public lessons and preserves filters', async () => {
+  const { user: teacher } = await createLessonTestUser('teacher', 'lesson-catalog-teacher@test.com');
+  const publicLesson = await createLessonFixture(teacher._id, {
+    title: 'Visible vocabulary', category: 'vocabulary', level: 'beginner',
+  });
+  await createLessonFixture(teacher._id, {
+    title: 'Private vocabulary', category: 'vocabulary', isPublic: false,
+  });
+  await createLessonFixture(teacher._id, {
+    title: 'Visible grammar', category: 'grammar',
+  });
+
+  const result = await request(app).get('/lessons/search?category=vocabulary&page=1&limit=10');
+  assert.equal(result.status, 200);
+  assert.equal(result.body.success, true);
+  assert.equal(result.body.total, 1);
+  assert.equal(result.body.lessons[0]._id, publicLesson.id);
+  assert.equal('enrolledStudents' in result.body.lessons[0], false);
+});
+
+test('lesson public detail increments views without exposing private enrollment', async () => {
+  const { user: teacher } = await createLessonTestUser('teacher', 'lesson-detail-teacher@test.com');
+  const publicLesson = await createLessonFixture(teacher._id);
+  const privateLesson = await createLessonFixture(teacher._id, { isPublic: false });
+
+  const visible = await request(app).get(`/lessons/${publicLesson.id}`);
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.success, true);
+  assert.equal('enrolledStudents' in visible.body.lesson, false);
+  assert.equal((await Lesson.findById(publicLesson.id)).views, 1);
+
+  const blocked = await request(app).get(`/lessons/${privateLesson.id}`);
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.body.message, 'השיעור אינו ציבורי');
+  assert.equal((await request(app).get('/lessons/not-an-object-id')).status, 400);
+});
+
+test('lesson enrollment rejects invalid and private lessons, and prevents duplicates', async () => {
+  const { user: teacher } = await createLessonTestUser('teacher', 'lesson-enroll-teacher@test.com');
+  const { user: student, token } = await createLessonTestUser('student', 'lesson-enroll-student@test.com');
+  const publicLesson = await createLessonFixture(teacher._id);
+  const privateLesson = await createLessonFixture(teacher._id, { isPublic: false });
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  assert.equal((await auth(request(app).post('/lessons/not-an-object-id/enroll'))).status, 400);
+  assert.equal((await auth(request(app).post(`/lessons/${privateLesson.id}/enroll`))).status, 403);
+  const first = await auth(request(app).post(`/lessons/${publicLesson.id}/enroll`));
+  assert.equal(first.status, 200);
+  assert.equal(first.body.message, 'נרשמת לשיעור בהצלחה');
+  const again = await auth(request(app).post(`/lessons/${publicLesson.id}/enroll`));
+  assert.equal(again.status, 400);
+  assert.equal(again.body.message, 'אתה כבר רשום לשיעור זה');
+  const saved = await Lesson.findById(publicLesson.id);
+  assert.equal(saved.enrolledStudents.length, 1);
+  assert.equal(saved.enrolledStudents[0].toString(), student.id);
+});
+
+test('lesson management prevents non-owner edits and allows owner updates and deletion', async () => {
+  const { user: owner, token: ownerToken } = await createLessonTestUser('teacher', 'lesson-manage-owner@test.com');
+  const { token: otherToken } = await createLessonTestUser('teacher', 'lesson-manage-other@test.com');
+  const lesson = await createLessonFixture(owner._id);
+  const endpoint = `/lessons/${lesson.id}`;
+
+  const forbidden = await request(app).put(endpoint)
+    .set('Authorization', `Bearer ${otherToken}`)
+    .send({ title: 'Cannot update' });
+  assert.equal(forbidden.status, 403);
+
+  const changed = await request(app).put(endpoint)
+    .set('Authorization', `Bearer ${ownerToken}`)
+    .send({ title: '  Updated by owner  ', isPublic: false });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.lesson.title, 'Updated by owner');
+  assert.equal(changed.body.lesson.isPublic, false);
+  assert.equal((await request(app).delete(endpoint)
+    .set('Authorization', `Bearer ${otherToken}`)).status, 403);
+
+  const deleted = await request(app).delete(endpoint)
+    .set('Authorization', `Bearer ${ownerToken}`);
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.success, true);
+  assert.equal(await Lesson.findById(lesson.id), null);
+});
+
+test('lesson teacher listing and statistics remain owner/admin restricted', async () => {
+  const { user: owner, token: ownerToken } = await createLessonTestUser('teacher', 'lesson-stats-owner@test.com');
+  const { token: otherToken } = await createLessonTestUser('teacher', 'lesson-stats-other@test.com');
+  const { token: adminToken } = await createLessonTestUser('admin', 'lesson-stats-admin@test.com');
+  await createLessonFixture(owner._id, { views: 4 });
+  const listPath = `/lessons/instructor/${owner.id}`;
+  const statsPath = `/lessons/stats/${owner.id}`;
+
+  const list = await request(app).get(listPath)
+    .set('Authorization', `Bearer ${ownerToken}`);
+  assert.equal(list.status, 200);
+  assert.equal(list.body.total, 1);
+  assert.equal((await request(app).get(listPath)
+    .set('Authorization', `Bearer ${otherToken}`)).status, 403);
+
+  const stats = await request(app).get(statsPath)
+    .set('Authorization', `Bearer ${ownerToken}`);
+  assert.equal(stats.status, 200);
+  assert.equal(stats.body.stats.totalLessons, 1);
+  assert.equal(stats.body.stats.totalViews, 4);
+  assert.equal((await request(app).get(statsPath)
+    .set('Authorization', `Bearer ${otherToken}`)).status, 403);
+  assert.equal((await request(app).get(statsPath)
+    .set('Authorization', `Bearer ${adminToken}`)).status, 200);
+});
