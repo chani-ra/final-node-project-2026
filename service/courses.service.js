@@ -129,6 +129,39 @@ const getCourseScore = (course, user, enrolledCourseIds) => {
   return score;
 };
 
+// Shared implementation for the four existing course-content operations.
+// Keep their exported signatures, MongoDB filter/update and messages unchanged.
+const addContentToCourse = async (
+  courseId,
+  contentId,
+  userId,
+  field,
+  forbiddenMessage,
+  successMessage
+) => {
+  const course = await Course.findOneAndUpdate(
+    { _id: courseId, instructorId: userId },
+    { $addToSet: { [field]: contentId } },
+    { new: true }
+  );
+
+  if (!course) {
+    const courseExists = await Course.exists({ _id: courseId });
+
+    if (!courseExists) {
+      const error = new Error('קורס לא נמצא');
+      error.status = 404;
+      throw error;
+    }
+
+    const error = new Error(forbiddenMessage);
+    error.status = 403;
+    throw error;
+  }
+
+  return { message: successMessage, course };
+};
+
 export const CourseService = {
   getRecommendedCourses: async (user) => {
     const query = buildRecommendationQuery(user);
@@ -552,218 +585,45 @@ export const CourseService = {
     };
   },
 
-  addLessonToCourse: async (
-    courseId,
-    lessonId,
-    userId
-  ) => {
-    const course =
-      await Course.findOneAndUpdate(
-        {
-          _id: courseId,
-          instructorId: userId,
-        },
-        {
-          $addToSet: {
-            lessons: lessonId,
-          },
-        },
-        {
-          new: true,
-        }
-      );
+  addLessonToCourse: async (courseId, lessonId, userId) =>
+    addContentToCourse(
+      courseId,
+      lessonId,
+      userId,
+      'lessons',
+      'אתה לא מורשה לעדכן קורס זה או שהשיעור כבר קיים',
+      'שיעור התווסף בהצלחה'
+    ),
 
-    if (!course) {
-      const courseExists =
-        await Course.exists({
-          _id: courseId,
-        });
+  addSongToCourse: async (courseId, songId, userId) =>
+    addContentToCourse(
+      courseId,
+      songId,
+      userId,
+      'songs',
+      'אתה לא מורשה לעדכן קורס זה או שהשיר כבר קיים',
+      'שיר התווסף בהצלחה'
+    ),
 
-      if (!courseExists) {
-        const error =
-          new Error(
-            'קורס לא נמצא'
-          );
+  addExerciseToCourse: async (courseId, exerciseId, userId) =>
+    addContentToCourse(
+      courseId,
+      exerciseId,
+      userId,
+      'exercises',
+      'אתה לא מורשה לעדכן קורס זה או שהתרגיל כבר קיים',
+      'תרגיל התווסף בהצלחה'
+    ),
 
-        error.status = 404;
-        throw error;
-      }
-
-      const error =
-        new Error(
-          'אתה לא מורשה לעדכן קורס זה או שהשיעור כבר קיים'
-        );
-
-      error.status = 403;
-      throw error;
-    }
-
-    return {
-      message:
-        'שיעור התווסף בהצלחה',
-      course,
-    };
-  },
-
-  addSongToCourse: async (
-    courseId,
-    songId,
-    userId
-  ) => {
-    const course =
-      await Course.findOneAndUpdate(
-        {
-          _id: courseId,
-          instructorId: userId,
-        },
-        {
-          $addToSet: {
-            songs: songId,
-          },
-        },
-        {
-          new: true,
-        }
-      );
-
-    if (!course) {
-      const courseExists =
-        await Course.exists({
-          _id: courseId,
-        });
-
-      if (!courseExists) {
-        const error =
-          new Error(
-            'קורס לא נמצא'
-          );
-
-        error.status = 404;
-        throw error;
-      }
-
-      const error =
-        new Error(
-          'אתה לא מורשה לעדכן קורס זה או שהשיר כבר קיים'
-        );
-
-      error.status = 403;
-      throw error;
-    }
-
-    return {
-      message:
-        'שיר התווסף בהצלחה',
-      course,
-    };
-  },
-
-  addExerciseToCourse: async (
-    courseId,
-    exerciseId,
-    userId
-  ) => {
-    const course =
-      await Course.findOneAndUpdate(
-        {
-          _id: courseId,
-          instructorId: userId,
-        },
-        {
-          $addToSet: {
-            exercises:
-              exerciseId,
-          },
-        },
-        {
-          new: true,
-        }
-      );
-
-    if (!course) {
-      const courseExists =
-        await Course.exists({
-          _id: courseId,
-        });
-
-      if (!courseExists) {
-        const error =
-          new Error(
-            'קורס לא נמצא'
-          );
-
-        error.status = 404;
-        throw error;
-      }
-
-      const error =
-        new Error(
-          'אתה לא מורשה לעדכן קורס זה או שהתרגיל כבר קיים'
-        );
-
-      error.status = 403;
-      throw error;
-    }
-
-    return {
-      message:
-        'תרגיל התווסף בהצלחה',
-      course,
-    };
-  },
-
-  addQuizToCourse: async (
-    courseId,
-    quizId,
-    userId
-  ) => {
-    const course =
-      await Course.findOneAndUpdate(
-        {
-          _id: courseId,
-          instructorId: userId,
-        },
-        {
-          $addToSet: {
-            quizzes: quizId,
-          },
-        },
-        {
-          new: true,
-        }
-      );
-
-    if (!course) {
-      const courseExists =
-        await Course.exists({
-          _id: courseId,
-        });
-
-      if (!courseExists) {
-        const error =
-          new Error(
-            'קורס לא נמצא'
-          );
-
-        error.status = 404;
-        throw error;
-      }
-
-      const error =
-        new Error(
-          'אתה לא מורשה לעדכן קורס זה או שהבוחן כבר קיים'
-        );
-
-      error.status = 403;
-      throw error;
-    }
-
-    return {
-      message:
-        'בחן התווסף בהצלחה',
-      course,
-    };
-  },
+  addQuizToCourse: async (courseId, quizId, userId) =>
+    addContentToCourse(
+      courseId,
+      quizId,
+      userId,
+      'quizzes',
+      'אתה לא מורשה לעדכן קורס זה או שהבוחן כבר קיים',
+      'בחן התווסף בהצלחה'
+    ),
 
   searchCourses: async (
     query,
