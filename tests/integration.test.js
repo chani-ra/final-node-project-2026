@@ -890,3 +890,125 @@ test("teacher students endpoint uses only owned course enrollments and real prog
   assert.equal(otherResult.body.students.length, 1);
   assert.equal(otherResult.body.students[0].studentId, secondStudent._id.toString());
 });
+
+// Batch 1: CourseController refactoring regression coverage.
+// These Course tests use DB fixtures; registration itself is covered above.
+// Calling /users/register here exceeds the 20/hour registration limiter.
+const createCourseTestStudent = async () => {
+  const student = await User.create({ ...registrationData, role: "student" });
+  const token = TokenService.generateAccessToken(student._id.toString(), "student");
+  return { student, token };
+};
+
+// These exercise the unchanged public routes, not implementation details.
+test("course discovery lists public courses and previews them without private content", async () => {
+  const { student, token } = await createCourseTestStudent();
+
+  const publicCourse = await Course.create({
+    title: "Visible grammar lessons",
+    description: "A public course",
+    category: "grammar",
+    instructorId: student._id,
+    isPublic: true,
+  });
+  const privateCourse = await Course.create({
+    title: "Hidden grammar lessons",
+    description: "A private course",
+    category: "grammar",
+    instructorId: student._id,
+    isPublic: false,
+  });
+
+  const discovery = await request(app)
+    .get("/courses/discover?search=grammar&page=1&limit=10")
+    .set("Authorization", `Bearer ${token}`);
+
+  assert.equal(discovery.status, 200);
+  assert.equal(discovery.body.success, true);
+  assert.ok(discovery.body.courses.some((course) => course._id === publicCourse.id));
+  assert.equal(discovery.body.courses.some((course) => course._id === privateCourse.id), false);
+
+  const preview = await request(app)
+    .get(`/courses/${publicCourse.id}`)
+    .set("Authorization", `Bearer ${token}`);
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.course.access, "preview");
+  assert.equal(preview.body.course.isEnrolled, false);
+  assert.equal("enrolledStudents" in preview.body.course, false);
+
+  const denied = await request(app)
+    .get(`/courses/${privateCourse.id}`)
+    .set("Authorization", `Bearer ${token}`);
+  assert.equal(denied.status, 403);
+});
+
+test("course creation remains teacher-only and preserves trimming and defaults", async () => {
+  const { student, token } = await createCourseTestStudent();
+  const courseData = { title: "  New teacher course  ", category: "grammar" };
+
+  const denied = await request(app)
+    .post("/courses/create")
+    .set("Authorization", `Bearer ${token}`)
+    .send(courseData);
+  assert.equal(denied.status, 403);
+
+  const teacher = student;
+  teacher.role = "teacher";
+  await teacher.save();
+  const teacherToken = TokenService.generateAccessToken(teacher.id, "teacher");
+
+  const invalid = await request(app)
+    .post("/courses/create")
+    .set("Authorization", `Bearer ${teacherToken}`)
+    .send({ category: "grammar" });
+  assert.equal(invalid.status, 400);
+
+  const created = await request(app)
+    .post("/courses/create")
+    .set("Authorization", `Bearer ${teacherToken}`)
+    .send(courseData);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.success, true);
+  assert.equal(created.body.course.title, "New teacher course");
+  assert.equal(created.body.course.level, "beginner");
+  assert.equal(created.body.course.isPublic, true);
+});
+
+test("enrollment preserves progress and duplicate-enrollment response", async () => {
+  const { student, token } = await createCourseTestStudent();
+  const course = await Course.create({
+    title: "Public enrollment course",
+    category: "grammar",
+    instructorId: student._id,
+    isPublic: true,
+  });
+
+  const enrolled = await request(app)
+    .post(`/courses/${course.id}/enroll`)
+    .set("Authorization", `Bearer ${token}`);
+  assert.equal(enrolled.status, 200);
+  assert.equal(enrolled.body.success, true);
+  assert.equal(enrolled.body.courseId, course.id);
+  assert.equal(enrolled.body.progressPercent, 0);
+
+  const progress = await CourseProgress.findOne({ user: student._id, course: course._id });
+  assert.ok(progress);
+
+  const duplicate = await request(app)
+    .post(`/courses/${course.id}/enroll`)
+    .set("Authorization", `Bearer ${token}`);
+  assert.equal(duplicate.status, 409);
+});
+
+test("personalized course rejects invalid level before calling the AI", async () => {
+  const { token } = await createCourseTestStudent();
+
+  const response = await request(app)
+    .post("/courses/create-personalized")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ englishLevel: "expert", favoriteHobbies: ["books"] });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.message, "רמת אנגלית לא תקינה");
+});
