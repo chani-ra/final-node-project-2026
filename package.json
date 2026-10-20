@@ -22,7 +22,6 @@
   "dependencies": {
     "@google-cloud/translate": "^9.3.0",
     "@google/genai": "^2.6.0",
-    "aws-sdk": "^2.1693.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -33,13 +32,13 @@
     "mongoose": "^8.19.3",
     "morgan": "^1.10.1",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^7.0.12",
-    "nodemon": "^2.0.22",
+    "nodemailer": "10.1.7",
     "openai": "^6.37.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
     "mongodb-memory-server": "^11.3.0",
+    "nodemon": "^3.1.14",
     "supertest": "^7.3.1"
   }
 }
