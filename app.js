@@ -53,7 +53,26 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(json());
 app.use(urlencoded({ extended: true }));
-app.use(morgan("dev"));
+morgan.token("safe-url", (req) => {
+  const raw = req.originalUrl || "/";
+  const qIdx = raw.indexOf("?");
+  if (qIdx === -1) return raw;
+  try {
+    const params = new URLSearchParams(raw.slice(qIdx + 1));
+    params.delete("token");
+    const qs = params.toString();
+    return raw.slice(0, qIdx) + (qs ? "?" + qs : "");
+  } catch {
+    return raw.slice(0, qIdx);
+  }
+});
+app.use(
+  morgan(
+    process.env.NODE_ENV === "production"
+      ? ':remote-addr [:date[clf]] ":method :safe-url HTTP/:http-version" :status :res[content-length] :response-time ms'
+      : ':method :safe-url :status :response-time ms - :res[content-length]'
+  )
+);
 
 app.use(
   "/uploads/videos",

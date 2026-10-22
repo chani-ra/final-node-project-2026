@@ -4,7 +4,7 @@ import { createReviewValidationSchema } from "../validation/review.validation.js
 
 export const ReviewController = {
   // דף הבית: קבלת המלצות מאושרות בלבד
-  getApprovedReviews: async (req, res) => {
+  getApprovedReviews: async (req, res, next) => {
     try {
       const reviews = await Review.find({ status: "approved" })
         .sort({ approvedAt: -1, createdAt: -1 })
@@ -16,15 +16,12 @@ export const ReviewController = {
         reviews,
       });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      return next(error);
     }
   },
 
   // משתמשת מחוברת מוסיפה המלצה
-  createReview: async (req, res) => {
+  createReview: async (req, res, next) => {
     const { error, value } = createReviewValidationSchema.validate(req.body);
 
     if (error) {
@@ -61,15 +58,12 @@ export const ReviewController = {
         review,
       });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      return next(error);
     }
   },
 
   // המשתמשת רואה את ההמלצות שהיא שלחה
-  getMyReviews: async (req, res) => {
+  getMyReviews: async (req, res, next) => {
     try {
       const reviews = await Review.find({ user: req.user.id }).sort({
         createdAt: -1,
@@ -80,15 +74,12 @@ export const ReviewController = {
         reviews,
       });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      return next(error);
     }
   },
 
   // מנהל רואה את כל ההמלצות
-  getAllReviewsForAdmin: async (req, res) => {
+  getAllReviewsForAdmin: async (req, res, next) => {
     try {
       const { status } = req.query;
 
@@ -104,15 +95,12 @@ export const ReviewController = {
         reviews,
       });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      return next(error);
     }
   },
 
   // מנהל מאשר המלצה
-  approveReview: async (req, res) => {
+  approveReview: async (req, res, next) => {
     try {
       const { reviewId } = req.params;
 
@@ -140,15 +128,12 @@ export const ReviewController = {
         review,
       });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      return next(error);
     }
   },
 
   // מנהל דוחה המלצה
-  rejectReview: async (req, res) => {
+  rejectReview: async (req, res, next) => {
     try {
       const { reviewId } = req.params;
       const { adminNote } = req.body;
@@ -177,15 +162,12 @@ export const ReviewController = {
         review,
       });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      return next(error);
     }
   },
 
   // מנהל מוחק המלצה
-  deleteReview: async (req, res) => {
+  deleteReview: async (req, res, next) => {
     try {
       const { reviewId } = req.params;
 
@@ -203,10 +185,7 @@ export const ReviewController = {
         message: "ההמלצה נמחקה",
       });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      return next(error);
     }
   },
 };
