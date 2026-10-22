@@ -82,7 +82,9 @@ export const getAdminStats = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: process.env.NODE_ENV === "production"
+        ? "שגיאה בטעינת נתוני המערכת. נסי שוב."
+        : error.message,
     });
   }
 };
