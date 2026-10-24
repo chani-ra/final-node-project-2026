@@ -16,9 +16,9 @@ EnglishWise supports students, teachers, and administrators with authenticated l
 | **Student tools** | Tasks, dictionary, conversations, and learning history. |
 | **Teacher/admin tools** | Content management, grading workflows, user management, messages, reviews, and AI request history. |
 
-## Practicum walkthrough — complete AI learning flow
+## AI Learning Studio — end-to-end lesson flow
 
-The **Practec Full Stack Mini MVP** asks for topic selection, an AI-generated lesson, persistence, personal history, and an administrator view. The backend implements the full sequence:
+The API provides a complete workflow for choosing a topic, generating an AI lesson, saving it to MongoDB, and retrieving it through student and administrator history views:
 
 ```text
 Student registers / logs in (JWT)
@@ -40,11 +40,11 @@ GET /learning/history — student revisits only their own lessons
 GET /learning/admin/history — admin reviews users' saved history
 ```
 
-The React form implementing this workflow is in `src/features/student/learning/` in the [frontend repository](https://github.com/chani-ra/final-react-project-2026). It calls the endpoints documented in [`docs/openapi.yaml`](docs/openapi.yaml). The additional EnglishWise learning tools extend this MVP without replacing the required flow.
+The React form implementing this workflow is in `src/features/student/learning/` in the [frontend repository](https://github.com/chani-ra/final-react-project-2026). It calls the endpoints documented in [`docs/openapi.yaml`](docs/openapi.yaml). The additional EnglishWise learning tools extend this core workflow while keeping the lesson-generation API focused.
 
-### How the brief maps to the data model
+### Learning Studio data model
 
-| Practicum concept | Implementation |
+| Domain entity | Implementation |
 | --- | --- |
 | User (`id`, name, phone) | `models/users.model.js` (`User`: MongoDB `_id`, `username`, `phone`, plus account/profile fields). |
 | Categories (`id`, name) | `models/learningCategory.model.js` (`LearningCategory`). |
@@ -181,7 +181,7 @@ The complete response and error contracts are in [`docs/openapi.yaml`](docs/open
 
 ## Assumptions and design decisions
 
-- **Scope:** the required MVP is the Learning Studio request/response/history workflow. Courses, media, quizzes, messaging, and other AI tools are complementary features within a larger application.
+- **Core workflow:** Learning Studio manages lesson requests, generated responses, and saved history in a focused service. Courses, media, quizzes, messaging, and other AI tools are complementary features within the larger application.
 - **Two different personalization approaches:** the course created at registration selects **existing** published content using deterministic scoring based on profile attributes; the on-demand coach and daily guide use **Gemini function calling** to consult scoped student-learning tools. Neither should be described as a continuously autonomous system.
 - **Prompt persistence:** a successfully generated, validated **text** lesson is saved with the originating authenticated user and selected topic; the service does not store an incomplete or empty AI result as a successful lesson.
 - **Account boundaries:** student-history queries always use the authenticated user ID; arbitrary user filtering is available only on the admin-protected endpoint.
@@ -213,7 +213,7 @@ The React application is a separate **Render Static Site** with `VITE_API_URL` p
 - Model request quotas do not protect against all usage costs, especially outside this application's quota system.
 - For a public repository, never commit `.env`, tokens, database exports, or real student data.
 
-## Reviewer walkthrough
+## Quick verification
 
 1. Log in as a student using a test account prepared outside this README.
 2. Load the category catalog, choose a valid subcategory, and generate a lesson.
